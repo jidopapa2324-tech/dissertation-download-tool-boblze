@@ -1,27 +1,84 @@
-"""학술 데이터 축적 — data/metadata.jsonl 에 JSON Lines로 append.
+"""학술 데이터 축적 — JSON Lines(append-only) 파일 두 개.
 
-DB 없이 파일 하나로 유지한다. 외부 AI가 이 파일을 그대로 읽어 활용한다.
+- index_file    : 검색으로 '발견'한 모든 논문(중복 제거). 다운로드 시 URL 조회용.
+- metadata_file : 실제 '다운로드'한 논문의 서지정보(초록 포함) 로그.
+
+DB 없이 파일로 유지한다. 외부 AI가 이 파일들을 그대로 읽어 활용한다.
 """
+
+import json
+import os
+
+
+def _ensure_dir(path: str) -> None:
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
+
+def _load_ids(path: str) -> set[str]:
+    ids: set[str] = set()
+    if not os.path.exists(path):
+        return ids
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "id" in rec:
+                ids.add(rec["id"])
+    return ids
+
+
+def _append(path: str, record: dict) -> None:
+    _ensure_dir(path)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def index_append(record: dict, config: dict) -> None:
+    """검색 발견 항목을 index_file에 append (id 중복이면 무시)."""
+    path = config["index_file"]
+    if record.get("id") in _load_ids(path):
+        return
+    _append(path, record)
+
+
+def index_lookup(thesis_id: str, config: dict) -> dict | None:
+    """index_file에서 id로 항목(주로 detail_url)을 찾는다. 없으면 None."""
+    path = config["index_file"]
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("id") == thesis_id:
+                return rec
+    return None
 
 
 def append(record: dict, config: dict) -> None:
-    """논문 메타데이터 1건을 metadata.jsonl 에 append 한다.
+    """다운로드한 논문 메타데이터를 metadata_file에 append (id 중복이면 무시).
 
-    - record 필수 키: id, title, author, university, year, degree,
-      detail_url, downloaded_at (ISO 8601). 선택 키: abstract, file
-    - 이미 같은 id가 파일에 있으면 쓰지 않는다 (중복 방지)
-    - 파일/디렉터리가 없으면 생성
-
-    TODO(opus): 구현
+    record 권장 키: id, title, author, university, year, degree,
+    detail_url, downloaded_at(ISO8601). 선택: abstract, file, collection.
     """
-    raise NotImplementedError
+    path = config["metadata_file"]
+    if record.get("id") in _load_ids(path):
+        return
+    _append(path, record)
 
 
 def load_ids(config: dict) -> set[str]:
-    """metadata.jsonl 에 기록된 논문 id 집합을 반환한다 (중복 체크용).
-
-    파일이 없으면 빈 set.
-
-    TODO(opus): 구현
-    """
-    raise NotImplementedError
+    """이미 다운로드(metadata_file 기록)된 id 집합. 중복 다운로드 체크용."""
+    return _load_ids(config["metadata_file"])

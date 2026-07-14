@@ -3,6 +3,8 @@
   "cdp_url": "http://localhost:9222",
   "download_dir": "data/downloads",
   "metadata_file": "data/metadata.jsonl",
+  "index_file": "data/index.jsonl",
+  "default_collection": "all",
   "delay_sec": 3,
   "timeout_sec": 30
 }

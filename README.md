@@ -50,8 +50,14 @@ playwright install chromium   # 실제로는 CDP attach만 하므로 브라우�
 ### 검색
 
 ```bash
-python cli.py search --keyword "딥러닝" [--max-pages 3]
+# 키워드 검색
+python cli.py search --keyword "딥러닝" --collection article [--max-pages 3]
+
+# 저자 검색 (국내학술논문)
+python cli.py search --author "서진형(Seo Jin Hyeong)" --collection article
 ```
+
+`--collection`: `all`(통합) | `thesis`(국내학위논문) | `article`(국내학술논문).
 
 stdout (JSON):
 
@@ -104,9 +110,14 @@ stdout (JSON):
 
 ## 데이터 축적
 
-- `data/metadata.jsonl` — 다운로드한 논문의 서지정보를 JSON Lines로 append.
-  중복 ID는 다시 쓰지 않는다.
-- `data/downloads/` — PDF 원문. 파일명은 `{id}.pdf`.
+- `data/index.jsonl` — 검색으로 **발견**한 모든 논문(중복 제거). `id`↔`detail_url`
+  매핑이 여기 저장되며, `download`는 이 파일에서 URL을 조회한다.
+  따라서 **download 전에 해당 논문이 search로 인덱싱돼 있어야** 한다.
+- `data/metadata.jsonl` — 실제 **다운로드**한 논문의 서지정보(초록 포함)를
+  JSON Lines로 append. 중복 ID는 다시 쓰지 않는다.
+- `data/downloads/` — 원문 파일. 파일명은 `{id}.pdf`.
+
+`id`는 RISS `control_no`이며 `search` 결과의 `detail_url`에서 추출된다.
 
 ## 유지보수 가이드
 

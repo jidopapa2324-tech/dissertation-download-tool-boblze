@@ -3,58 +3,73 @@
 RISS 페이지 구조가 바뀌면 이 파일만 수정한다.
 다른 모듈에서 셀렉터/URL 문자열을 직접 쓰는 것 금지.
 
-설계 원칙: 가능한 한 UI 클릭 대신 URL 직접 조립으로 이동한다.
-(검색창 타이핑, 탭 클릭이 필요 없어져 셀렉터 의존도가 낮아진다)
-
-TODO(opus): "TODO" 표시된 값을 실제 로그인된 페이지 HTML을 보고 채울 것.
+설계 원칙: 가능한 한 UI 클릭 대신 URL 직접 조립으로 이동하고,
+검색 결과는 상세링크(DetailView.do) 앵커에서 control_no를 추출하는
+'앵커 기반' 방식을 쓴다. 이러면 결과 목록의 세부 CSS 셀렉터에 거의
+의존하지 않아 페이지 개편에 강하다.
 """
 
 # =====================================================================
-# URL 패턴 (실제 RISS 프록시 URL에서 확인된 구조)
+# 컬렉션(colName) 코드 — RISS 실 URL에서 확인/추정
+# =====================================================================
+COLLECTIONS = {
+    "all": "all",          # 통합검색
+    "thesis": "bib_t",     # 국내학위논문 (추정: bib_t)
+    "article": "re_a_kor",  # 국내학술논문 (실 URL에서 확인)
+}
+
+# =====================================================================
+# 검색 URL 템플릿 (실 RISS 프록시 URL 구조 기반)
 # =====================================================================
 
-# 검색 결과 페이지. UI 조작 없이 이 URL로 바로 이동한다.
-#   {query}       : URL 인코딩된 검색 키워드
-#   {start_count} : 결과 오프셋 (0, 10, 20, ... = (페이지-1) * page_scale)
-#   {col_name}    : 검색 대상 컬렉션. TODO(opus): '학위논문' 탭 클릭 후
-#                   URL에서 실제 값 확인 (국내학위논문은 "bib_t"로 추정)
-SEARCH_URL_TEMPLATE = (
+# 키워드 검색: query=<키워드>
+KEYWORD_SEARCH_URL = (
     "{base_url}/search/Search.do"
     "?query={query}"
-    "&colName={col_name}"
+    "&colName={col_name}&icate={col_name}"
     "&iStartCount={start_count}"
-    "&pageScale=10"
-    "&isDetailSearch=N&searchGubun=true&strSort=RANK&order=%2FDESC"
-    "&icate=all&isTab=Y&pageNumber={page_number}"
+    "&pageScale=10&pageNumber={page_number}"
+    "&isDetailSearch=N&searchGubun=true&strSort=RANK&order=%2FDESC&isTab=Y"
 )
-COL_NAME_THESIS = "TODO"  # '학위논문' 컬렉션의 colName 값 (추정: bib_t)
 
-# 논문 상세 페이지. control_no(논문 고유 ID)만 있으면 조립 가능.
-# p_mat_type은 자료유형(학위논문)별 상수로 확인됨.
-DETAIL_URL_TEMPLATE = (
-    "{base_url}/search/detail/DetailView.do"
-    "?p_mat_type={p_mat_type}"
-    "&control_no={control_no}"
+# 상세(필드) 검색: queryText=znCreator,<저자명>  → 저자로 검색
+# field는 znCreator(저자) 등 RISS 상세검색 필드 코드.
+FIELD_SEARCH_URL = (
+    "{base_url}/search/Search.do"
+    "?isDetailSearch=Y&isFDetailSearch=N&searchGubun=true"
+    "&queryText={field}%2C{value}"
+    "&colName={col_name}&icate={col_name}"
+    "&iStartCount={start_count}"
+    "&pageScale=10&pageNumber={page_number}"
+    "&strSort=RANK&order=%2FDESC&fsearchMethod=search&sflag=1&isTab=Y"
 )
-P_MAT_TYPE_THESIS = "1a0202e37d52c72d"  # 학위논문 자료유형 상수 (실 URL에서 확인)
+FIELD_CREATOR = "znCreator"  # 저자 검색 필드 코드
 
-# 검색 결과의 제목 링크 href에서 논문 ID(control_no)를 추출하는 정규식
-DETAIL_URL_ID_PATTERN = r"control_no=([0-9a-f]+)"
+# 검색 결과에서 논문 고유 ID(control_no)를 뽑는 정규식
+CONTROL_NO_PATTERN = r"control_no=([0-9a-zA-Z]+)"
 
-# =====================================================================
-# 검색 결과 목록 셀렉터
-# =====================================================================
-FILTER_DOCTORAL = "TODO"       # 좌측 필터 '박사' 체크박스 (URL 파라미터로
-                               # 대체 가능하면 그 방식을 우선할 것)
-RESULT_ITEM = "TODO"           # 결과 리스트의 논문 1건 컨테이너
-RESULT_TITLE_LINK = "TODO"     # 제목 링크 (href에서 control_no 추출)
-RESULT_AUTHOR = "TODO"
-RESULT_UNIVERSITY = "TODO"
-RESULT_YEAR = "TODO"
-RESULT_DEGREE = "TODO"         # 석사/박사 구분 텍스트
+# 검색 결과 페이지에서 상세페이지로 가는 앵커. 이 앵커의 href에
+# 완전한 DetailView URL(p_mat_type + control_no 포함)이 들어있어,
+# 다운로드 때 URL을 재조립할 필요 없이 그대로 재사용한다.
+RESULT_DETAIL_LINK = "a[href*='DetailView.do']"
 
 # =====================================================================
-# 상세 페이지 셀렉터
+# 상세 페이지 셀렉터 (메타데이터/다운로드)
+#   실제 로그인된 상세 페이지 HTML을 보고 확정해야 함. 아래는 후보 목록이며
+#   parse/download 로직이 순서대로 시도하고 없으면 건너뛴다(크래시 방지).
 # =====================================================================
-DETAIL_DOWNLOAD_BUTTON = "TODO"  # 원문 다운로드 버튼
-DETAIL_ABSTRACT = "TODO"         # 초록 영역 (메타데이터 축적용)
+
+# 원문 다운로드/보기 버튼 후보 (위에서부터 순서대로 시도)
+DETAIL_DOWNLOAD_CANDIDATES = [
+    "a.btnDownload",
+    "a[href*='download']",
+    "button.download",
+    "a:has-text('원문보기')",
+    "a:has-text('다운로드')",
+    "a:has-text('원문')",
+]
+
+# 서지정보 파싱 후보 (label 텍스트 → 값). 상세페이지의 정의목록(dl/dt/dd)
+# 구조가 흔하므로 그 형태를 우선 파싱하고, 실패 시 아래 셀렉터 후보를 쓴다.
+DETAIL_TITLE_CANDIDATES = ["h3.title", ".thesisInfo h3", "h3", "title"]
+DETAIL_ABSTRACT_CANDIDATES = [".abstractTxt", "#soptionview .content", ".abstract"]
