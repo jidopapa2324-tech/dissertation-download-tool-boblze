@@ -67,6 +67,24 @@ def index_lookup(thesis_id: str, config: dict) -> dict | None:
     return None
 
 
+def index_all(config: dict) -> list[dict]:
+    """index_file의 모든 발견 항목을 리스트로 반환 (list/전체 다운로드용)."""
+    path = config["index_file"]
+    out: list[dict] = []
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return out
+
+
 def append(record: dict, config: dict) -> None:
     """다운로드한 논문 메타데이터를 metadata_file에 append (id 중복이면 무시).
 

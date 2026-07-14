@@ -1,7 +1,7 @@
 {
   "base_url": "https://www-riss-kr.libproxy.kw.ac.kr",
   "cdp_url": "http://localhost:9222",
-  "download_dir": "data/downloads",
+  "download_dir": "reference",
   "metadata_file": "data/metadata.jsonl",
   "index_file": "data/index.jsonl",
   "default_collection": "all",

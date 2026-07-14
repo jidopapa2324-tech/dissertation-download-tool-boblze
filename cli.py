@@ -14,7 +14,7 @@ import json
 import os
 import sys
 
-from riss import browser, download, search
+from riss import browser, download, metadata, search
 from riss import inspect as inspect_mod
 
 
@@ -61,10 +61,16 @@ def cmd_inspect(args: argparse.Namespace, config: dict) -> dict:
 
 
 def cmd_download(args: argparse.Namespace, config: dict) -> dict:
+    if args.all:
+        ids = [r["id"] for r in metadata.index_all(config) if r.get("id")]
+    else:
+        ids = args.ids or []
+    if not ids:
+        raise SystemExit("--ids 로 논문 ID를 주거나 --all 을 사용하세요.")
     session = browser.connect(config)
     try:
         browser.ensure_logged_in(session.page, config)
-        results = download.download_many(session.page, args.ids, config)
+        results = download.download_many(session.page, ids, config)
     finally:
         session.close()
     return {
@@ -87,7 +93,10 @@ def main() -> int:
     p_search.add_argument("--max-pages", type=int, default=3)
 
     p_download = sub.add_parser("download", help="지정한 ID(control_no)의 원문 다운로드")
-    p_download.add_argument("--ids", nargs="+", required=True)
+    p_download.add_argument("--ids", nargs="+", help="다운로드할 논문 ID들 (띄어쓰기 구분)")
+    p_download.add_argument("--all", action="store_true", help="검색된(인덱스의) 전체 다운로드")
+
+    sub.add_parser("list", help="검색된 논문 목록을 사람이 읽기 쉽게 출력")
 
     p_inspect = sub.add_parser("inspect", help="[개발용] 상세페이지 구조 덤프 (셀렉터 확정용)")
     p_inspect.add_argument("target", help="control_no 또는 전체 detail_url")
@@ -106,6 +115,13 @@ def main() -> int:
 
     try:
         config = load_config()
+        if args.command == "list":
+            # 사람이 읽는 목록 (JSON 아님)
+            records = metadata.index_all(config)
+            for i, r in enumerate(records, 1):
+                print(f"{i:3}. {r.get('title', '')}  [{r.get('id', '')}]")
+            print(f"\n총 {len(records)}건 (data/index.jsonl)")
+            return 0
         if args.command == "search":
             if not args.keyword and not args.author:
                 raise SystemExit("--keyword 또는 --author 중 하나가 필요합니다.")
