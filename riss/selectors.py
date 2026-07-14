@@ -68,9 +68,13 @@ FULLTEXT_LINK_CANDIDATES = [
     "a:has-text('원문보기')",
 ]
 
-# 팝업(외부 제공처)에서 실제 PDF 다운로드 버튼 후보.
-# TODO(opus): inspect --follow 로 교보스콜라 등 실제 팝업 구조를 확인해 확정.
+# 팝업(외부 제공처)에서 실제 PDF '저장' 버튼 후보.
+# 교보스콜라 확인 결과: '원문저장'이 PDF 저장, '원문보기'는 웹뷰어(다운로드 아님).
+# onclick이 비어 JS로 바인딩돼 있으므로 텍스트로 클릭해 핸들러를 실행한다.
+# 중복 배치(상단/플로팅)가 있어 '보이는' 요소를 클릭한다(download._find_first).
 PROVIDER_DOWNLOAD_CANDIDATES = [
+    "a:has-text('원문저장')",
+    "button:has-text('원문저장')",
     "a:has-text('PDF 다운로드')",
     "a:has-text('원문 다운로드')",
     "a:has-text('다운로드')",

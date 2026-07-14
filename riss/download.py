@@ -55,30 +55,30 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
             # 팝업이 없으면 같은 탭에서 처리됐을 수 있음
             provider = page
 
+        provider.wait_for_load_state("networkidle", timeout=timeout)
         provider_url = provider.url
         meta["provider_url"] = provider_url
 
-        # 팝업(외부 제공처)에서 실제 PDF 다운로드 시도
-        dl_button = _find_first(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES)
+        # 외부 제공처(교보스콜라)에서 '원문저장' 클릭 → PDF 다운로드
+        dl_button = _find_visible(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES)
         if dl_button is None:
             return {
                 "id": thesis_id,
                 "ok": False,
-                "error": "외부 제공처에서 다운로드 버튼을 찾지 못했습니다.",
+                "error": "외부 제공처에서 '원문저장' 버튼을 찾지 못했습니다.",
                 "provider_url": provider_url,
             }
 
-        try:
-            with provider.expect_download(timeout=timeout) as di:
-                dl_button.click()
-            di.value.save_as(out_path)
-        except Exception as e:
+        # 다운로드는 현재 탭 또는 새 팝업 어디서든 시작될 수 있어 둘 다 대비.
+        download = _click_and_capture_download(provider, dl_button, timeout)
+        if download is None:
             return {
                 "id": thesis_id,
                 "ok": False,
-                "error": f"다운로드가 시작되지 않았습니다: {e}",
+                "error": "'원문저장' 클릭 후 다운로드가 시작되지 않았습니다 (뷰어로 열렸을 수 있음).",
                 "provider_url": provider_url,
             }
+        download.save_as(out_path)
 
         meta["file"] = out_path
         meta["downloaded_at"] = _dt.datetime.now().isoformat(timespec="seconds")
@@ -101,6 +101,48 @@ def _find_first(page, candidates):
             el = None
         if el:
             return el
+    return None
+
+
+def _find_visible(page, candidates):
+    """후보 중 실제로 '보이는' 요소를 반환 (중복 배치된 버튼 대비)."""
+    for sel in candidates:
+        try:
+            els = page.query_selector_all(sel)
+        except Exception:
+            els = []
+        for el in els:
+            try:
+                if el.is_visible():
+                    return el
+            except Exception:
+                continue
+    return None
+
+
+def _click_and_capture_download(provider, button, timeout):
+    """button 클릭 후 다운로드를 잡는다. 현재 탭/새 팝업 어디서 시작되든 대응.
+
+    성공 시 Download 객체, 실패 시 None.
+    """
+    ctx = provider.context
+    # 1) 현재 탭에서 다운로드가 시작되는 경우
+    try:
+        with provider.expect_download(timeout=timeout) as di:
+            button.click()
+        return di.value
+    except Exception:
+        pass
+    # 2) 새 팝업이 열리고 그 팝업에서 다운로드가 시작되는 경우
+    for pg in ctx.pages:
+        if pg is provider:
+            continue
+        try:
+            with pg.expect_download(timeout=5000) as di:
+                pass  # 팝업 로드 과정에서 자동 시작되는 다운로드 포착
+            return di.value
+        except Exception:
+            continue
     return None
 
 
