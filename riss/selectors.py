@@ -59,14 +59,24 @@ RESULT_DETAIL_LINK = "a[href*='DetailView.do']"
 #   parse/download 로직이 순서대로 시도하고 없으면 건너뛴다(크래시 방지).
 # =====================================================================
 
-# 원문 다운로드/보기 버튼 후보 (위에서부터 순서대로 시도)
-DETAIL_DOWNLOAD_CANDIDATES = [
-    "a.btnDownload",
-    "a[href*='download']",
-    "button.download",
+# '원문보기' 링크 후보. 실 페이지 확인 결과, 이 링크는 href가
+# javascript:void(0)이고 onclick으로 ButtonSet.memberUrlDownload(...)를
+# 호출해 '새 창(팝업)'을 띄운다 → 그 팝업이 외부 원문 제공처(교보스콜라 등).
+# 따라서 이 링크를 클릭한 뒤 expect_popup 으로 새 창을 잡아야 한다.
+FULLTEXT_LINK_CANDIDATES = [
+    "a[onclick*='memberUrlDownload']",
     "a:has-text('원문보기')",
+]
+
+# 팝업(외부 제공처)에서 실제 PDF 다운로드 버튼 후보.
+# TODO(opus): inspect --follow 로 교보스콜라 등 실제 팝업 구조를 확인해 확정.
+PROVIDER_DOWNLOAD_CANDIDATES = [
+    "a:has-text('PDF 다운로드')",
+    "a:has-text('원문 다운로드')",
     "a:has-text('다운로드')",
-    "a:has-text('원문')",
+    "button:has-text('다운로드')",
+    "a[href$='.pdf']",
+    "a[href*='download']",
 ]
 
 # 서지정보 파싱 후보 (label 텍스트 → 값). 상세페이지의 정의목록(dl/dt/dd)

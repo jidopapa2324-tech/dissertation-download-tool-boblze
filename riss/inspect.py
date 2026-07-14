@@ -10,8 +10,12 @@ from urllib.parse import urljoin
 from . import metadata, selectors
 
 
-def inspect(page, config: dict, target: str) -> dict:
-    """target(=control_no 또는 detail_url)의 페이지 구조를 덤프한다."""
+def inspect(page, config: dict, target: str, follow: bool = False) -> dict:
+    """target(=control_no 또는 detail_url)의 페이지 구조를 덤프한다.
+
+    follow=True 이면 상세페이지에서 '원문보기'를 클릭해 뜨는 새 팝업(외부
+    제공처, 예: 교보스콜라)의 구조를 대신 덤프한다 — 다운로드 흐름 확정용.
+    """
     detail_url = _resolve_url(config, target)
     page.goto(detail_url, wait_until="domcontentloaded")
     try:
@@ -19,6 +23,42 @@ def inspect(page, config: dict, target: str) -> dict:
     except Exception:
         pass
 
+    if follow:
+        return _inspect_provider(page, config, detail_url)
+
+    return _dump(page, config, detail_url)
+
+
+def _inspect_provider(page, config: dict, detail_url: str) -> dict:
+    """'원문보기'를 클릭해 뜨는 팝업(외부 제공처)의 구조를 덤프한다."""
+    link = None
+    for sel in selectors.FULLTEXT_LINK_CANDIDATES:
+        link = page.query_selector(sel)
+        if link:
+            break
+    if link is None:
+        return {"ok": False, "error": "'원문보기' 링크를 찾지 못했습니다.", "detail_url": detail_url}
+
+    timeout = config["timeout_sec"] * 1000
+    try:
+        with page.expect_popup(timeout=timeout) as pi:
+            link.click()
+        provider = pi.value
+        provider.wait_for_load_state("domcontentloaded")
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"원문보기 클릭 후 팝업을 잡지 못했습니다: {e}",
+            "detail_url": detail_url,
+            "current_url": page.url,
+        }
+    dump = _dump(provider, config, detail_url)
+    dump["provider_final_url"] = provider.url
+    return dump
+
+
+def _dump(page, config: dict, detail_url: str) -> dict:
+    """현재 page의 원문/다운로드 관련 구조를 덤프한다."""
     base = config["base_url"]
 
     links = []

@@ -53,7 +53,7 @@ def cmd_inspect(args: argparse.Namespace, config: dict) -> dict:
     session = browser.connect(config)
     try:
         browser.ensure_logged_in(session.page, config)
-        return inspect_mod.inspect(session.page, config, args.target)
+        return inspect_mod.inspect(session.page, config, args.target, follow=args.follow)
     finally:
         session.close()
 
@@ -89,6 +89,11 @@ def main() -> int:
 
     p_inspect = sub.add_parser("inspect", help="[개발용] 상세페이지 구조 덤프 (셀렉터 확정용)")
     p_inspect.add_argument("target", help="control_no 또는 전체 detail_url")
+    p_inspect.add_argument(
+        "--follow",
+        action="store_true",
+        help="'원문보기'를 클릭해 뜨는 외부 제공처(팝업) 구조를 덤프",
+    )
 
     args = parser.parse_args()
 
