@@ -5,6 +5,6 @@
   "metadata_file": "data/metadata.jsonl",
   "index_file": "data/index.jsonl",
   "default_collection": "all",
-  "delay_sec": 3,
-  "timeout_sec": 30
+  "delay_sec": 1,
+  "timeout_sec": 20
 }

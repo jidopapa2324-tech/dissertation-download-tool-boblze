@@ -78,17 +78,11 @@ def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
                 "provider_url": (popup.url if popup else ""),
             }
         try:
-            provider.wait_for_load_state("networkidle", timeout=timeout)
+            provider.wait_for_load_state("domcontentloaded", timeout=timeout)
         except Exception:
             pass
         provider_url = provider.url
         meta["provider_url"] = provider_url
-
-        # 외부 제공처(교보스콜라 등) 페이지의 서지정보를 '지금' 긁어 저장한다.
-        # 나중에 다시 찾는 수고를 없애기 위해 페이지 텍스트를 통째로 보관하고,
-        # 발행연도/페이지/저자는 미리 뽑아 bib에 넣어둔다.
-        _step("서지정보 수집 중...")
-        _capture_provider_bib(provider, meta)
 
         if base_host in provider_url:
             return {
@@ -98,8 +92,13 @@ def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
                 "provider_url": provider_url,
             }
 
-        # 외부 제공처(교보스콜라)에서 '원문저장' 클릭 → PDF 다운로드
-        dl_button = _find_visible(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES)
+        # 외부 제공처(교보스콜라)에서 '원문저장' 버튼이 나타날 때까지만 기다림
+        # (networkidle 대신 필요한 요소만 기다려 속도 향상)
+        dl_button = _find_visible_wait(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES, timeout)
+
+        # 서지정보를 저장한다 (버튼 대기 후 = DOM이 준비된 시점).
+        _step("서지정보 수집 중...")
+        _capture_provider_bib(provider, meta)
         if dl_button is None:
             return {
                 "id": thesis_id,
@@ -193,6 +192,20 @@ def _find_first(page, candidates):
         if el:
             return el
     return None
+
+
+def _find_visible_wait(page, candidates, timeout_ms):
+    """후보 버튼이 나타날 때까지 짧게 폴링하며 기다린다 (networkidle 대체).
+
+    페이지가 완전히 idle 되기 전이라도 버튼이 보이면 즉시 진행 → 속도 향상.
+    """
+    deadline = time.time() + min(timeout_ms, 15000) / 1000.0
+    while time.time() < deadline:
+        el = _find_visible(page, candidates)
+        if el is not None:
+            return el
+        time.sleep(0.3)
+    return _find_visible(page, candidates)
 
 
 def _find_visible(page, candidates):

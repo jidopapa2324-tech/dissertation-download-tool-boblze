@@ -41,10 +41,11 @@ def search(
         start_count = page_idx * 10
         url = _build_url(config, keyword, author, col_name, start_count, page_idx + 1)
         page.goto(url, wait_until="domcontentloaded")
+        # networkidle(최대 30초)를 기다리지 않고, 결과 링크가 나타나면 바로 진행
         try:
-            page.wait_for_load_state("networkidle", timeout=config["timeout_sec"] * 1000)
+            page.wait_for_selector(selectors.RESULT_DETAIL_LINK, timeout=config["timeout_sec"] * 1000)
         except Exception:
-            pass  # networkidle 실패는 치명적이지 않음
+            pass  # 결과가 없어도(마지막 페이지 등) 파싱은 시도
 
         items = _parse_result_page(page, config, col_name)
         new_on_page = 0
