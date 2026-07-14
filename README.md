@@ -113,9 +113,13 @@ stdout (JSON):
 - `data/index.jsonl` — 검색으로 **발견**한 모든 논문(중복 제거). `id`↔`detail_url`
   매핑이 여기 저장되며, `download`는 이 파일에서 URL을 조회한다.
   따라서 **download 전에 해당 논문이 search로 인덱싱돼 있어야** 한다.
-- `data/metadata.jsonl` — 실제 **다운로드**한 논문의 서지정보(초록 포함)를
-  JSON Lines로 append. 중복 ID는 다시 쓰지 않는다.
-- `data/downloads/` — 원문 파일. 파일명은 `{id}.pdf`.
+- `data/metadata.jsonl` — 실제 **다운로드**한 논문의 서지정보를 JSON Lines로
+  append. 중복 ID는 다시 쓰지 않는다. 각 레코드에는 상세페이지의 서지
+  '라벨:값' 쌍을 통째로 담은 `bib` 필드가 있어, 나중에 AI가 이걸 읽어 원하는
+  참조문헌 서식(저자·연도·페이지 등)으로 변환할 수 있다.
+- `data/downloads/` — 원문 파일. 파일명은 **논문 제목**(기본형).
+  Windows 금지문자는 공백으로 치환하고 길이를 제한하며, 동일 제목의 다른
+  논문과 충돌하면 파일명 끝에 id 일부를 붙여 구분한다.
 
 `id`는 RISS `control_no`이며 `search` 결과의 `detail_url`에서 추출된다.
 

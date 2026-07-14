@@ -19,10 +19,6 @@ from . import metadata, selectors
 
 def download_one(page, thesis_id: str, config: dict) -> dict:
     """논문 1건을 다운로드하고 결과 dict를 반환한다. 예외를 던지지 않는다."""
-    out_path = os.path.join(config["download_dir"], f"{thesis_id}.pdf")
-    if os.path.exists(out_path):
-        return {"id": thesis_id, "ok": True, "file": out_path, "skipped": True}
-
     entry = metadata.index_lookup(thesis_id, config)
     if not entry or not entry.get("detail_url"):
         return {
@@ -31,6 +27,11 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
             "error": "인덱스에 detail_url이 없습니다. 먼저 search로 해당 논문을 찾으세요.",
         }
     detail_url = entry["detail_url"]
+
+    # 파일명은 논문 제목(기본형). 동일 제목의 다른 논문 충돌 시 id 일부를 붙임.
+    out_path = _out_path(config, entry.get("title") or thesis_id, thesis_id)
+    if os.path.exists(out_path):
+        return {"id": thesis_id, "ok": True, "file": out_path, "skipped": True}
 
     try:
         page.goto(detail_url, wait_until="domcontentloaded")
@@ -215,8 +216,12 @@ def _first_text(page, candidates) -> str:
 
 
 def _parse_detail(page, thesis_id: str, detail_url: str, entry: dict) -> dict:
-    """상세페이지 서지정보를 방어적으로 파싱한다. 실패한 필드는 비운다."""
-    title = _first_text(page, selectors.DETAIL_TITLE_CANDIDATES) or entry.get("title", "")
+    """상세페이지 서지정보를 방어적으로 파싱한다.
+
+    개별 필드를 완벽히 구조화하기보다, 상세페이지의 '라벨:값' 쌍을 통째로
+    bib에 담아둔다 → 나중에 AI가 필요한 서식(저자/연도/페이지 등)으로 변환.
+    """
+    title = entry.get("title") or _first_text(page, selectors.DETAIL_TITLE_CANDIDATES)
     abstract = _first_text(page, selectors.DETAIL_ABSTRACT_CANDIDATES)
     return {
         "id": thesis_id,
@@ -224,4 +229,50 @@ def _parse_detail(page, thesis_id: str, detail_url: str, entry: dict) -> dict:
         "detail_url": detail_url,
         "collection": entry.get("collection", ""),
         "abstract": abstract,
+        "bib": _extract_bib(page),
     }
+
+
+def _extract_bib(page) -> dict:
+    """상세페이지의 서지 라벨:값 쌍을 dict로 뽑는다. (dl>dt/dd, tr>th/td)"""
+    bib: dict[str, str] = {}
+    try:
+        for dl in page.query_selector_all("dl"):
+            dts = dl.query_selector_all("dt")
+            dds = dl.query_selector_all("dd")
+            for dt, dd in zip(dts, dds):
+                label = (dt.inner_text() or "").strip()
+                value = " ".join((dd.inner_text() or "").split()).strip()
+                if label and value and label not in bib:
+                    bib[label] = value
+        for tr in page.query_selector_all("tr"):
+            th = tr.query_selector("th")
+            td = tr.query_selector("td")
+            if th and td:
+                label = (th.inner_text() or "").strip()
+                value = " ".join((td.inner_text() or "").split()).strip()
+                if label and value and label not in bib:
+                    bib[label] = value
+    except Exception:
+        pass
+    return bib
+
+
+def _out_path(config: dict, title: str, thesis_id: str) -> str:
+    """제목 기반 파일 경로. 동일 제목의 다른 논문과 충돌하면 id 일부를 덧붙임."""
+    base = _safe_filename(title)
+    path = os.path.join(config["download_dir"], f"{base}.pdf")
+    if os.path.exists(path) and thesis_id not in metadata.load_ids(config):
+        path = os.path.join(config["download_dir"], f"{base} ({thesis_id[:6]}).pdf")
+    return path
+
+
+def _safe_filename(name: str, max_len: int = 150) -> str:
+    """Windows/공통 파일명 규칙에 맞게 정리한다."""
+    name = " ".join((name or "").split())          # 개행/중복 공백 정리
+    for ch in '\\/:*?"<>|':                          # 금지문자 → 공백
+        name = name.replace(ch, " ")
+    name = " ".join(name.split()).strip(" .")        # 다시 정리 + 끝의 . 제거
+    if len(name) > max_len:
+        name = name[:max_len].strip()
+    return name or "untitled"
