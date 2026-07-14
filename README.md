@@ -26,6 +26,10 @@ RISS(광운대 도서관 프록시 경유) 박사학위논문 자동 다운로�
 2. **로그인하지 않는다.** 사용자가 `--remote-debugging-port=9222`로 띄운 Chrome에서
    이미 로그인된 탭을 그대로 사용한다.
 3. **셀렉터는 `selectors.py` 한 곳에만.** RISS 페이지가 바뀌면 이 파일만 수정.
+   또한 UI 클릭 대신 URL 직접 조립을 우선한다 — 검색은
+   `/search/Search.do?query=...&iStartCount=...`, 상세는
+   `/search/detail/DetailView.do?control_no=...` 로 바로 이동하므로
+   검색창/탭 셀렉터가 아예 필요 없다. 논문 ID = RISS `control_no`.
 4. **모든 출력은 JSON.** 외부 AI가 파싱하는 유일한 계약(contract)이다.
 5. **요청 간 지연(`config.json`의 `delay_sec`)을 반드시 둔다.**
    기관 계정 보호 및 서버 부하 방지 목적. 개인 연구 목적 사용을 전제로 한다.

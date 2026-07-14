@@ -12,7 +12,9 @@ def download_one(page: Page, thesis_id: str, config: dict) -> dict:
     절차:
     1. 이미 config["download_dir"]/{thesis_id}.pdf 가 존재하면
        {"id": ..., "ok": True, "file": ..., "skipped": True} 로 즉시 반환
-    2. 논문 상세 페이지로 이동
+    2. 상세 페이지로 이동 — selectors.DETAIL_URL_TEMPLATE 에
+       control_no=thesis_id, p_mat_type=P_MAT_TYPE_THESIS 를 채워 page.goto()
+       (thesis_id가 곧 RISS의 control_no다)
     3. selectors.DETAIL_DOWNLOAD_BUTTON 클릭, Playwright의
        expect_download 로 파일 저장 → {download_dir}/{thesis_id}.pdf
     4. 상세 페이지의 서지정보(초록 포함)를 파싱해 metadata.append() 호출
