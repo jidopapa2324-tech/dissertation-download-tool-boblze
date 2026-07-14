@@ -4,13 +4,15 @@
 ID = RISS control_no. detail_url은 index_file(검색 결과)에서 조회한다.
 
 실 페이지 확인 결과 흐름:
-  RISS 상세페이지 → '원문보기' 클릭(memberUrlDownload) → 새 팝업(외부 제공처,
-  예: 교보스콜라) → 그 팝업에서 PDF 다운로드.
+  RISS 상세페이지 → '원문보기' 클릭(memberUrlDownload) → RISS 중간 로더
+  (UrlLoad.do) 팝업 → 자동 리다이렉트로 외부 제공처(예: 교보스콜라) 도착
+  → 거기서 '원문저장' 클릭 → PDF 다운로드.
 """
 
 import datetime as _dt
 import os
 import time
+from urllib.parse import urlparse
 
 from . import metadata, selectors
 
@@ -43,21 +45,40 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
 
         os.makedirs(config["download_dir"], exist_ok=True)
         timeout = config["timeout_sec"] * 1000
+        base_host = urlparse(config["base_url"]).netloc
 
-        # '원문보기'는 새 팝업을 띄운다. 팝업/다운로드 두 경우 모두 대비.
-        provider = None
+        # '원문보기'는 RISS 중간 로더(UrlLoad.do) 팝업을 띄우고, 그게 외부
+        # 제공처로 리다이렉트된다. 팝업이 RISS를 벗어날 때까지 기다린다.
+        pages_before = list(page.context.pages)
         try:
             with page.expect_popup(timeout=timeout) as pi:
                 link.click()
-            provider = pi.value
-            provider.wait_for_load_state("domcontentloaded")
+            popup = pi.value
         except Exception:
-            # 팝업이 없으면 같은 탭에서 처리됐을 수 있음
-            provider = page
+            popup = None
 
-        provider.wait_for_load_state("networkidle", timeout=timeout)
+        provider = _wait_for_provider(page.context, base_host, pages_before, popup, timeout)
+        if provider is None:
+            return {
+                "id": thesis_id,
+                "ok": False,
+                "error": "'원문보기' 후 외부 제공처 창을 찾지 못했습니다.",
+                "provider_url": (popup.url if popup else ""),
+            }
+        try:
+            provider.wait_for_load_state("networkidle", timeout=timeout)
+        except Exception:
+            pass
         provider_url = provider.url
         meta["provider_url"] = provider_url
+
+        if base_host in provider_url:
+            return {
+                "id": thesis_id,
+                "ok": False,
+                "error": "외부 제공처로 리다이렉트되지 않았습니다 (RISS 로더에 머묾).",
+                "provider_url": provider_url,
+            }
 
         # 외부 제공처(교보스콜라)에서 '원문저장' 클릭 → PDF 다운로드
         dl_button = _find_visible(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES)
@@ -91,6 +112,40 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
 
 def download_many(page, thesis_ids: list[str], config: dict) -> list[dict]:
     return [download_one(page, tid, config) for tid in thesis_ids]
+
+
+def _wait_for_provider(context, base_host, pages_before, popup, timeout):
+    """'원문보기' 후 RISS를 벗어나 외부 제공처로 이동한 페이지를 찾는다.
+
+    로더 팝업(UrlLoad.do)이 같은 창에서 리다이렉트하는 경우와, 새 창을
+    다시 여는 경우를 모두 대비한다. 기존에 열려있던 탭은 무시한다.
+    실패 시 (있으면) popup을, 없으면 None을 반환한다.
+    """
+    before_ids = {id(p) for p in pages_before}
+    deadline = time.time() + timeout / 1000.0
+    while time.time() < deadline:
+        # 1) 로더 팝업이 스스로 외부로 리다이렉트한 경우
+        if popup is not None:
+            try:
+                u = popup.url or ""
+            except Exception:
+                u = ""
+            if u.startswith("http") and base_host not in u:
+                return popup
+        # 2) 새 창이 다시 열려 외부로 간 경우
+        for pg in context.pages:
+            if id(pg) in before_ids:
+                continue
+            if popup is not None and pg is popup:
+                continue
+            try:
+                u = pg.url or ""
+            except Exception:
+                u = ""
+            if u.startswith("http") and base_host not in u:
+                return pg
+        time.sleep(0.5)
+    return popup
 
 
 def _find_first(page, candidates):
