@@ -4,8 +4,10 @@
   "download_dir": "reference",
   "metadata_file": "data/metadata.jsonl",
   "index_file": "data/index.jsonl",
+  "failed_file": "data/failed.json",
   "default_collection": "all",
   "delay_sec": 1,
   "timeout_sec": 20,
-  "overlap_batch": 4
+  "overlap_batch": 4,
+  "max_retries": 2
 }

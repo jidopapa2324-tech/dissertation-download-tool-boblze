@@ -35,6 +35,7 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
         return {"_kind": "fail", "result": {
             "id": thesis_id, "ok": False,
             "error": "인덱스에 detail_url이 없습니다. 먼저 search로 해당 논문을 찾으세요.",
+            "retryable": False,
         }}
     detail_url = entry["detail_url"]
 
@@ -45,22 +46,23 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
             "id": thesis_id, "ok": True, "file": out_path, "skipped": True,
         }}
 
-    def _fail(msg, provider_url=""):
+    def _fail(msg, provider_url="", retryable=True):
         return {"_kind": "fail", "result": {
-            "id": thesis_id, "ok": False, "error": msg, "provider_url": provider_url,
+            "id": thesis_id, "ok": False, "error": msg,
+            "provider_url": provider_url, "retryable": retryable,
         }}
 
     try:
         _step("상세페이지 여는 중...")
         page.goto(detail_url, wait_until="domcontentloaded")
         if "login" in (page.url or "").lower():
-            return _fail("로그인 만료: 다시 로그인 후 재시도")
+            return _fail("로그인 만료: 다시 로그인 후 재시도", retryable=False)
 
         meta = _parse_detail(page, thesis_id, detail_url, entry)
 
         link = _find_first(page, selectors.FULLTEXT_LINK_CANDIDATES)
         if link is None:
-            return _fail("'원문보기' 링크를 찾지 못했습니다 (원문 미제공 가능).")
+            return _fail("'원문보기' 링크를 찾지 못했습니다 (원문 미제공 가능).", retryable=False)
 
         os.makedirs(config["download_dir"], exist_ok=True)
         timeout = config["timeout_sec"] * 1000
@@ -83,6 +85,7 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
                 "id": thesis_id, "ok": False,
                 "error": "'원문보기' 후 외부 제공처 창을 찾지 못했습니다.",
                 "provider_url": (popup.url if popup else ""),
+                "retryable": True,
             }, "_popups": popups}
         try:
             provider.wait_for_load_state("domcontentloaded", timeout=timeout)
@@ -96,6 +99,7 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
                 "id": thesis_id, "ok": False,
                 "error": "외부 제공처로 리다이렉트되지 않았습니다 (RISS 로더에 머묾).",
                 "provider_url": provider_url,
+                "retryable": True,
             }, "_popups": popups}
 
         dl_button = _find_visible_wait(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES, timeout)
@@ -106,6 +110,7 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
                 "id": thesis_id, "ok": False,
                 "error": "외부 제공처에서 '원문저장' 버튼을 찾지 못했습니다.",
                 "provider_url": provider_url,
+                "retryable": True,
             }, "_popups": popups}
 
         _step("다운로드 시작 중...")
@@ -116,6 +121,7 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
                 "id": thesis_id, "ok": False,
                 "error": "'원문저장' 클릭 후 다운로드가 시작되지 않았습니다 (뷰어로 열렸을 수 있음).",
                 "provider_url": provider_url,
+                "retryable": True,
             }, "_popups": popups}
 
         return {
@@ -141,7 +147,8 @@ def _finalize(item: dict, config: dict) -> dict:
     except Exception as e:
         _close_popups(item.get("_popups"))
         return {"id": thesis_id, "ok": False,
-                "error": f"파일 저장 실패: {e}", "provider_url": provider_url}
+                "error": f"파일 저장 실패: {e}", "provider_url": provider_url,
+                "retryable": True}
 
     # #3 무결성 검증: 실제 PDF인지 확인 (HTML 오류페이지 등을 걸러냄)
     if not _looks_like_pdf(out_path):
@@ -152,7 +159,7 @@ def _finalize(item: dict, config: dict) -> dict:
         _close_popups(item.get("_popups"))
         return {"id": thesis_id, "ok": False,
                 "error": "받은 파일이 정상 PDF가 아닙니다 (원문 미제공/오류페이지 가능). 삭제함.",
-                "provider_url": provider_url}
+                "provider_url": provider_url, "retryable": False}
 
     meta = item["meta"]
     meta["file"] = out_path
@@ -240,7 +247,41 @@ def download_many(page, thesis_ids: list[str], config: dict, report=None) -> lis
             time.sleep(config["delay_sec"])
 
     flush()
-    return [ordered[k] for k in sorted(ordered)]
+    results = [ordered[k] for k in sorted(ordered)]
+
+    # #1 자동 재시도: 일시적 실패(retryable)만 백오프를 두고 다시 시도
+    results = _retry_failed(page, results, config, report)
+    return results
+
+
+def _retry_failed(page, results, config, report=None) -> list[dict]:
+    """retryable 실패를 max_retries회까지 지수 백오프로 재시도한다 (겹치기 없이 단건)."""
+    max_retries = int(config.get("max_retries", 2))
+    by_id = {r["id"]: r for r in results}
+    total = len(results)
+    for attempt in range(1, max_retries + 1):
+        targets = [r for r in results if not r["ok"] and r.get("retryable")]
+        if not targets:
+            break
+        backoff = 2 ** attempt  # 2초, 4초, ...
+        if report:
+            print_msg = f"\n[재시도 {attempt}/{max_retries}] {len(targets)}건 (대기 {backoff}초)"
+            report(0, total, print_msg, "retry_header", None)
+        time.sleep(backoff)
+        for r in targets:
+            tid = r["id"]
+            entry = metadata.index_lookup(tid, config)
+            title = (entry.get("title") if entry else "") or tid
+            if report:
+                report(0, total, title, "retry_start", None)
+            new_r = download_one(page, tid, config)
+            new_r.setdefault("retryable", r.get("retryable", False))
+            by_id[tid].clear()
+            by_id[tid].update(new_r)
+            if report:
+                report(0, total, title, "retry_done", new_r)
+            time.sleep(config["delay_sec"])
+    return results
 
 
 def _wait_for_provider(context, base_host, pages_before, popup, timeout):

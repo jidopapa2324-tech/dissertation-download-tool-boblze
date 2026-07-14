@@ -89,7 +89,18 @@ def _make_reporter():
     def report(i, total, title, phase, data):
         now = time.perf_counter()
         short = title if len(title) <= 40 else title[:39] + "…"
-        if phase == "start":
+        if phase == "retry_header":
+            print(title, file=sys.stderr, flush=True)  # title에 안내문이 담겨옴
+        elif phase == "retry_start":
+            print(f"  ↻ 재시도: {short}", file=sys.stderr, flush=True)
+        elif phase == "retry_done":
+            if data.get("ok") and not data.get("skipped"):
+                print(f"    ✔ 재시도 성공: {short}", file=sys.stderr, flush=True)
+            elif data.get("skipped"):
+                print(f"    - 이미 있음: {short}", file=sys.stderr, flush=True)
+            else:
+                print(f"    ✗ 재시도 실패: {short}", file=sys.stderr, flush=True)
+        elif phase == "start":
             st["paper_t"] = now
             st["label"] = None
             print(f"\n[{i}/{total}] {short}", file=sys.stderr, flush=True)
