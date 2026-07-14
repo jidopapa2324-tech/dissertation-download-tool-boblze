@@ -61,6 +61,10 @@ playwright install chromium   # 실제로는 CDP attach만 하므로 브라우�
 
 `list` 명령은 사람이 읽기 쉬운 목록을 출력한다 (`python cli.py list`).
 `download --all` 은 인덱스(검색된) 전체를 받는다.
+`download --retry-failed` 는 이전에 실패한 논문만 다시 받는다 (실패 목록은
+`data/failed.json` 에 자동 관리 — 성공하면 빠지고 실패하면 쌓인다).
+`export --format bibtex|ris|csljson [--out 파일]` 은 축적된 서지정보를
+인용 포맷으로 내보낸다 (Word·한글·Zotero 등에 사용).
 
 ## CLI 사용법 (외부 AI가 호출하는 계약)
 

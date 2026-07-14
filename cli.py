@@ -15,7 +15,7 @@ import os
 import sys
 import time
 
-from riss import browser, download, metadata, search
+from riss import browser, download, export, metadata, search
 from riss import inspect as inspect_mod
 
 
@@ -206,6 +206,13 @@ def main() -> int:
 
     sub.add_parser("list", help="검색된 논문 목록을 사람이 읽기 쉽게 출력")
 
+    p_export = sub.add_parser("export", help="축적된 서지정보를 인용 포맷으로 내보내기")
+    p_export.add_argument(
+        "--format", default="bibtex", choices=["bibtex", "ris", "csljson"],
+        help="출력 형식 (기본: bibtex)",
+    )
+    p_export.add_argument("--out", help="저장 파일 경로 (생략 시 화면 출력)")
+
     p_inspect = sub.add_parser("inspect", help="[개발용] 상세페이지 구조 덤프 (셀렉터 확정용)")
     p_inspect.add_argument("target", help="control_no 또는 전체 detail_url")
     p_inspect.add_argument(
@@ -229,6 +236,18 @@ def main() -> int:
             for i, r in enumerate(records, 1):
                 print(f"{i:3}. {r.get('title', '')}  [{r.get('id', '')}]")
             print(f"\n총 {len(records)}건 (data/index.jsonl)")
+            return 0
+        if args.command == "export":
+            text = export.build(config, args.format)
+            if args.out:
+                d = os.path.dirname(args.out)
+                if d:
+                    os.makedirs(d, exist_ok=True)
+                with open(args.out, "w", encoding="utf-8") as f:
+                    f.write(text)
+                print(f"저장 완료: {args.out}", file=sys.stderr)
+            else:
+                print(text)
             return 0
         if args.command == "search":
             if not args.keyword and not args.author:

@@ -21,6 +21,7 @@ echo    4. 검색결과 목록 보기
 echo    5. 선택 다운로드 (논문 ID 입력)
 echo    6. 검색된 전체 다운로드
 echo    7. 실패한 논문만 다시 시도
+echo    8. 인용정보 내보내기 (BibTeX/RIS)
 echo    9. 최신 코드로 업데이트 (git pull)
 echo    0. 종료
 echo ================================================
@@ -33,6 +34,7 @@ if "%sel%"=="4" goto listcmd
 if "%sel%"=="5" goto download
 if "%sel%"=="6" goto download_all
 if "%sel%"=="7" goto retry_failed
+if "%sel%"=="8" goto export
 if "%sel%"=="9" goto update
 if "%sel%"=="0" exit
 goto menu
@@ -99,6 +101,16 @@ echo 이전에 실패한 논문만 다시 시도합니다.
 %PY% cli.py download --progress --retry-failed
 echo.
 if exist "data\last_download.json" start "" notepad "data\last_download.json"
+pause
+goto menu
+
+:export
+echo.
+echo 형식 선택: 1) BibTeX  2) RIS  3) CSL-JSON
+set /p ef=번호(기본 1):
+if "%ef%"=="2" ( set "FMT=ris" & set "EXT=ris" ) else if "%ef%"=="3" ( set "FMT=csljson" & set "EXT=json" ) else ( set "FMT=bibtex" & set "EXT=bib" )
+%PY% cli.py export --format %FMT% --out "reference\citations.%EXT%"
+if exist "reference\citations.%EXT%" start "" notepad "reference\citations.%EXT%"
 pause
 goto menu
 
