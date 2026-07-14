@@ -78,8 +78,12 @@ GUI는 실제 작업을 직접 하지 않고 **기존 `cli.py`를 그대로 호�
 `download --all` 은 인덱스(검색된) 전체를 받는다.
 `download --retry-failed` 는 이전에 실패한 논문만 다시 받는다 (실패 목록은
 `data/failed.json` 에 자동 관리 — 성공하면 빠지고 실패하면 쌓인다).
-`export --format bibtex|ris|csljson [--out 파일]` 은 축적된 서지정보를
-인용 포맷으로 내보낸다 (Word·한글·Zotero 등에 사용).
+`export --format bibtex|ris|csljson|apa|korean [--out 파일]` 은 축적된
+서지정보를 내보낸다:
+  - 기계용(관리 프로그램 가져오기): `bibtex` · `ris` · `csljson`
+  - 사람용(논문에 바로 붙여넣는 참고문헌 목록): `apa` · `korean`
+    (학회 규정마다 세부 서식이 달라 근사치이며, 정확한 서식은 확인 후 다듬는다)
+`library` 는 다운로드한 참고문헌을 저자순으로 정리해 목록으로 출력한다.
 
 ## CLI 사용법 (외부 AI가 호출하는 계약)
 

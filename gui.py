@@ -204,7 +204,7 @@ class MainWindow(QMainWindow):
         self.btn_retry = QPushButton("실패만 재시도")
         self.btn_retry.clicked.connect(self.on_retry)
         self.cmb_fmt = QComboBox()
-        self.cmb_fmt.addItems(["bibtex", "ris", "csljson"])
+        self.cmb_fmt.addItems(["apa", "korean", "bibtex", "ris", "csljson"])
         self.btn_export = QPushButton("인용 내보내기")
         self.btn_export.clicked.connect(self.on_export)
         actions.addWidget(self.btn_dl_sel)
@@ -363,8 +363,10 @@ class MainWindow(QMainWindow):
 
     def on_export(self):
         fmt = self.cmb_fmt.currentText()
-        ext = {"bibtex": "bib", "ris": "ris", "csljson": "json"}[fmt]
-        out = os.path.join("reference", f"citations.{ext}")
+        ext = {"bibtex": "bib", "ris": "ris", "csljson": "json",
+               "apa": "txt", "korean": "txt"}[fmt]
+        name = "bibliography" if fmt in ("apa", "korean") else "citations"
+        out = os.path.join("reference", f"{name}_{fmt}.{ext}")
         self.run_cli(build_export_args(fmt, out), f"내보내기 완료 → {out}")
 
 

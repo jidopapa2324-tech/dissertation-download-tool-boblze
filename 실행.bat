@@ -106,11 +106,16 @@ goto menu
 
 :export
 echo.
-echo 형식 선택: 1) BibTeX  2) RIS  3) CSL-JSON
+echo 참고문헌 목록(바로 붙여넣기): 1) APA  2) 한국식
+echo 기계용(관리 프로그램):        3) BibTeX  4) RIS  5) CSL-JSON
 set /p ef=번호(기본 1):
-if "%ef%"=="2" ( set "FMT=ris" & set "EXT=ris" ) else if "%ef%"=="3" ( set "FMT=csljson" & set "EXT=json" ) else ( set "FMT=bibtex" & set "EXT=bib" )
-%PY% cli.py export --format %FMT% --out "reference\citations.%EXT%"
-if exist "reference\citations.%EXT%" start "" notepad "reference\citations.%EXT%"
+if "%ef%"=="2" ( set "FMT=korean" & set "OUT=reference\bibliography_korean.txt" ) ^
+else if "%ef%"=="3" ( set "FMT=bibtex" & set "OUT=reference\citations.bib" ) ^
+else if "%ef%"=="4" ( set "FMT=ris" & set "OUT=reference\citations.ris" ) ^
+else if "%ef%"=="5" ( set "FMT=csljson" & set "OUT=reference\citations.json" ) ^
+else ( set "FMT=apa" & set "OUT=reference\bibliography_apa.txt" )
+%PY% cli.py export --format %FMT% --out "%OUT%"
+if exist "%OUT%" start "" notepad "%OUT%"
 pause
 goto menu
 

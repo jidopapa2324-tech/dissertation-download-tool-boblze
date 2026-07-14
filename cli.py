@@ -208,10 +208,12 @@ def main() -> int:
 
     p_export = sub.add_parser("export", help="축적된 서지정보를 인용 포맷으로 내보내기")
     p_export.add_argument(
-        "--format", default="bibtex", choices=["bibtex", "ris", "csljson"],
-        help="출력 형식 (기본: bibtex)",
+        "--format", default="bibtex", choices=export.FORMATS,
+        help="기계용: bibtex|ris|csljson / 사람용 참고문헌: apa|korean (기본: bibtex)",
     )
     p_export.add_argument("--out", help="저장 파일 경로 (생략 시 화면 출력)")
+
+    sub.add_parser("library", help="다운로드한 참고문헌을 정리해 목록으로 출력")
 
     p_inspect = sub.add_parser("inspect", help="[개발용] 상세페이지 구조 덤프 (셀렉터 확정용)")
     p_inspect.add_argument("target", help="control_no 또는 전체 detail_url")
@@ -236,6 +238,15 @@ def main() -> int:
             for i, r in enumerate(records, 1):
                 print(f"{i:3}. {r.get('title', '')}  [{r.get('id', '')}]")
             print(f"\n총 {len(records)}건 (data/index.jsonl)")
+            return 0
+        if args.command == "library":
+            items = export.library(config)
+            for i, it in enumerate(items, 1):
+                au = ", ".join(it["authors"]) or "저자미상"
+                jr = f" 《{it['journal']}》" if it["journal"] else ""
+                pg = f" {it['pages']}" if it["pages"] else ""
+                print(f"{i:3}. {au} ({it['year'] or '연도미상'}). {it['title']}.{jr}{pg}")
+            print(f"\n총 {len(items)}건 (다운로드 완료, data/metadata.jsonl)")
             return 0
         if args.command == "export":
             text = export.build(config, args.format)

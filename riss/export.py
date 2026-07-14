@@ -81,8 +81,15 @@ def _journal(rec: dict) -> str:
     return ""
 
 
+FORMATS = ["bibtex", "ris", "csljson", "apa", "korean"]
+
+
 def build(config: dict, fmt: str) -> str:
-    """metadata.jsonl 전체를 fmt 문자열로 변환해 반환한다."""
+    """metadata.jsonl 전체를 fmt 문자열로 변환해 반환한다.
+
+    기계용: bibtex | ris | csljson
+    사람용(바로 붙여넣는 참고문헌 목록): apa | korean
+    """
     recs = _records(config)
     if fmt == "bibtex":
         return "\n".join(_to_bibtex(r) for r in recs) + ("\n" if recs else "")
@@ -90,7 +97,89 @@ def build(config: dict, fmt: str) -> str:
         return "\n".join(_to_ris(r) for r in recs)
     if fmt == "csljson":
         return json.dumps([_to_csl(r) for r in recs], ensure_ascii=False, indent=2)
-    raise ValueError(f"지원하지 않는 형식: {fmt} (bibtex|ris|csljson)")
+    if fmt in ("apa", "korean"):
+        return _to_bibliography(recs, fmt)
+    raise ValueError(f"지원하지 않는 형식: {fmt} ({'|'.join(FORMATS)})")
+
+
+def library(config: dict) -> list[dict]:
+    """다운로드 완료된 참고문헌을 정리된 필드로 반환한다 (라이브러리/정리 뷰)."""
+    out = []
+    for r in sorted(_records(config), key=_sort_key):
+        sp, ep = _pages(r)
+        out.append({
+            "id": r.get("id", ""),
+            "title": r.get("title", ""),
+            "authors": _authors(r),
+            "year": _year(r),
+            "journal": _journal(r),
+            "pages": f"{sp}-{ep}" if sp and ep else "",
+            "file": r.get("file", ""),
+        })
+    return out
+
+
+def _sort_key(rec: dict):
+    authors = _authors(rec)
+    return ((authors[0] if authors else "힣"), _year(rec), rec.get("title", ""))
+
+
+def _to_bibliography(recs: list[dict], style: str) -> str:
+    """저자→연도 순으로 정렬된, 바로 붙여넣는 참고문헌 목록을 만든다.
+
+    스타일별 세부 규칙은 학회마다 다르므로 근사치다. 정확한 서식이 필요하면
+    metadata.jsonl의 원본(provider_bib_text 등)으로 이후에 다듬는다.
+    """
+    lines = [_format_citation(r, style) for r in sorted(recs, key=_sort_key)]
+    header = "% APA 근사 형식" if style == "apa" else "% 한국식(KCI) 근사 형식"
+    return header + " — 학회 규정에 맞게 확인/수정 필요\n\n" + "\n\n".join(lines) + ("\n" if lines else "")
+
+
+def _format_citation(rec: dict, style: str) -> str:
+    authors = _authors(rec)
+    year = _year(rec)
+    title = (rec.get("title", "") or "").strip().rstrip(".")
+    journal = _journal(rec)
+    sp, ep = _pages(rec)
+    pages = f"{sp}-{ep}" if sp and ep else ""
+
+    if style == "apa":
+        # 홍길동, & 이몽룡 (2009). 제목. 학술지, 43-47.
+        if len(authors) >= 2:
+            auth = ", ".join(authors[:-1]) + ", & " + authors[-1]
+        elif authors:
+            auth = authors[0]
+        else:
+            auth = ""
+        parts = []
+        if auth:
+            parts.append(f"{auth} ({year}).")
+        elif year:
+            parts.append(f"({year}).")
+        if title:
+            parts.append(f"{title}.")
+        tail = journal
+        if pages:
+            tail = (tail + ", " + pages) if tail else pages
+        if tail:
+            parts.append(tail + ".")
+        return " ".join(parts).strip()
+
+    # korean: 홍길동·이몽룡 (2009). 제목. 「학술지」, 43-47.
+    auth = "·".join(authors)
+    parts = []
+    if auth:
+        parts.append(f"{auth} ({year}).")
+    elif year:
+        parts.append(f"({year}).")
+    if title:
+        parts.append(f"{title}.")
+    tail = f"「{journal}」" if journal else ""
+    if pages:
+        tail = (tail + ", " + pages) if tail else pages
+    if tail:
+        parts.append(tail + ".")
+    return " ".join(parts).strip()
 
 
 def _bib_escape(s: str) -> str:
