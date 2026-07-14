@@ -11,6 +11,7 @@ ID = RISS control_no. detail_url은 index_file(검색 결과)에서 조회한다
 
 import datetime as _dt
 import os
+import re
 import time
 from urllib.parse import urlparse
 
@@ -72,6 +73,11 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
             pass
         provider_url = provider.url
         meta["provider_url"] = provider_url
+
+        # 외부 제공처(교보스콜라 등) 페이지의 서지정보를 '지금' 긁어 저장한다.
+        # 나중에 다시 찾는 수고를 없애기 위해 페이지 텍스트를 통째로 보관하고,
+        # 발행연도/페이지/저자는 미리 뽑아 bib에 넣어둔다.
+        _capture_provider_bib(provider, meta)
 
         if base_host in provider_url:
             return {
@@ -256,6 +262,50 @@ def _extract_bib(page) -> dict:
     except Exception:
         pass
     return bib
+
+
+def _capture_provider_bib(provider, meta: dict) -> None:
+    """외부 제공처 페이지의 서지 텍스트를 통째로 저장하고 주요 필드를 추출한다.
+
+    구조를 몰라도 정보를 잃지 않도록 페이지 텍스트를 보관(provider_bib_text)하고,
+    발행연도/페이지/저자는 정규식으로 뽑아 meta['bib']에 병합한다.
+    """
+    text = ""
+    for sel in selectors.PROVIDER_INFO_CANDIDATES:
+        try:
+            el = provider.query_selector(sel)
+        except Exception:
+            el = None
+        if el:
+            t = (el.inner_text() or "").strip()
+            if t:
+                text = t
+                break
+    if not text:
+        try:
+            text = provider.inner_text("body")
+        except Exception:
+            text = ""
+    text = text.strip()  # 개행은 보존(가독성/후처리용)
+    if len(text) > 6000:
+        text = text[:6000]
+    meta["provider_bib_text"] = text
+
+    bib = meta.setdefault("bib", {})
+    m = re.search(r"(\d{4}\.\d{2})", text)
+    if m:
+        bib.setdefault("발행연도", m.group(1))
+    m = re.search(r"(\d+\s*[-~]\s*\d+\s*\(\s*\d+\s*pages?\s*\))", text)
+    if m:
+        bib.setdefault("페이지", re.sub(r"\s+", " ", m.group(1)))
+    authors = re.findall(r"[가-힣]{2,}\([A-Za-z][A-Za-z .]*\)", text)
+    if authors:
+        # 순서 유지 중복 제거
+        seen = []
+        for a in authors:
+            if a not in seen:
+                seen.append(a)
+        bib.setdefault("저자", seen[:10])
 
 
 def _out_path(config: dict, title: str, thesis_id: str) -> str:

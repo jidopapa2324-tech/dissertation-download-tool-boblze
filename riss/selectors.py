@@ -87,3 +87,14 @@ PROVIDER_DOWNLOAD_CANDIDATES = [
 # 구조가 흔하므로 그 형태를 우선 파싱하고, 실패 시 아래 셀렉터 후보를 쓴다.
 DETAIL_TITLE_CANDIDATES = ["h3.title", ".thesisInfo h3", "h3", "title"]
 DETAIL_ABSTRACT_CANDIDATES = [".abstractTxt", "#soptionview .content", ".abstract"]
+
+# 외부 제공처(교보스콜라 등) 페이지에서 서지정보가 담긴 영역 후보.
+# 못 찾으면 download 로직이 body 전체 텍스트로 폴백하므로 정보는 유실되지 않는다.
+# TODO(opus): 교보스콜라 실제 클래스 확인되면 앞쪽에 추가해 정확도 향상.
+PROVIDER_INFO_CANDIDATES = [
+    ".article_info",
+    ".book_info",
+    ".title_wrap",
+    ".detail_info",
+    "main",
+]
