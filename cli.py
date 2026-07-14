@@ -24,6 +24,18 @@ def load_config() -> dict:
         return json.load(f)
 
 
+def _save_result(out: dict, config: dict, name: str) -> None:
+    """명령 결과 JSON을 파일로도 저장한다 (사람이 열어 붙여넣기 쉽게)."""
+    try:
+        data_dir = os.path.dirname(config.get("metadata_file", "data/x")) or "."
+        os.makedirs(data_dir, exist_ok=True)
+        path = os.path.join(data_dir, name)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass  # 저장 실패는 무시 (부가 기능)
+
+
 def cmd_search(args: argparse.Namespace, config: dict) -> dict:
     session = browser.connect(config)
     try:
@@ -106,11 +118,13 @@ def cmd_download(args: argparse.Namespace, config: dict) -> dict:
             file=sys.stderr,
             flush=True,
         )
-    return {
+    out = {
         "ok": all(r["ok"] for r in results),
         "command": "download",
         "results": results,
     }
+    _save_result(out, config, "last_download.json")
+    return out
 
 
 def main() -> int:
@@ -167,7 +181,12 @@ def main() -> int:
         else:
             out = cmd_download(args, config)
     except Exception as e:
-        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+        err = {"ok": False, "error": str(e)}
+        try:
+            _save_result(err, load_config(), "last_download.json")
+        except Exception:
+            pass
+        print(json.dumps(err, ensure_ascii=False))
         return 1
 
     print(json.dumps(out, ensure_ascii=False, indent=2))

@@ -75,6 +75,9 @@ goto menu
 echo.
 set /p ids=다운로드할 논문 ID (여러 개는 띄어쓰기로 구분):
 %PY% cli.py download --progress --ids %ids%
+echo.
+echo 결과를 메모장으로 엽니다. (문제 보고 시 전체 복사 Ctrl+A → Ctrl+C 해서 붙여넣기)
+if exist "data\last_download.json" start "" notepad "data\last_download.json"
 pause
 goto menu
 
@@ -82,6 +85,9 @@ goto menu
 echo.
 echo 검색된(목록의) 모든 논문을 다운로드합니다. 이미 받은 것은 건너뜁니다.
 %PY% cli.py download --progress --all
+echo.
+echo 결과를 메모장으로 엽니다. (문제 보고 시 전체 복사 Ctrl+A → Ctrl+C 해서 붙여넣기)
+if exist "data\last_download.json" start "" notepad "data\last_download.json"
 pause
 goto menu
 
