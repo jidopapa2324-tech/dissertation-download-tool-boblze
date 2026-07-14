@@ -10,11 +10,11 @@ from urllib.parse import urljoin
 from . import metadata, selectors
 
 
-def inspect(page, config: dict, target: str, follow: bool = False) -> dict:
+def inspect(page, config: dict, target: str, follow: bool = False, meta: bool = False) -> dict:
     """target(=control_no 또는 detail_url)의 페이지 구조를 덤프한다.
 
-    follow=True 이면 상세페이지에서 '원문보기'를 클릭해 뜨는 새 팝업(외부
-    제공처, 예: 교보스콜라)의 구조를 대신 덤프한다 — 다운로드 흐름 확정용.
+    follow=True 이면 '원문보기' 팝업(외부 제공처)의 구조를 덤프한다.
+    meta=True 이면 상세페이지의 서지정보(라벨:값 쌍)를 덤프한다 — 파일명/메타 확정용.
     """
     detail_url = _resolve_url(config, target)
     page.goto(detail_url, wait_until="domcontentloaded")
@@ -25,8 +25,51 @@ def inspect(page, config: dict, target: str, follow: bool = False) -> dict:
 
     if follow:
         return _inspect_provider(page, config, detail_url)
+    if meta:
+        return _dump_meta(page, detail_url)
 
     return _dump(page, config, detail_url)
+
+
+def _dump_meta(page, detail_url: str) -> dict:
+    """상세페이지의 서지정보를 라벨:값 쌍으로 덤프한다."""
+    pairs = []
+    # 정의목록(dl > dt/dd) 형태
+    for dl in page.query_selector_all("dl"):
+        dts = dl.query_selector_all("dt")
+        dds = dl.query_selector_all("dd")
+        for dt, dd in zip(dts, dds):
+            label = (dt.inner_text() or "").strip()
+            value = (dd.inner_text() or "").strip()
+            if label or value:
+                pairs.append([label, value])
+    # 표(tr > th/td) 형태
+    for tr in page.query_selector_all("tr"):
+        th = tr.query_selector("th")
+        td = tr.query_selector("td")
+        if th and td:
+            label = (th.inner_text() or "").strip()
+            value = (td.inner_text() or "").strip()
+            if label or value:
+                pairs.append([label, value])
+    # ul.infoDetail li (라벨 span + 값) 형태 대비: li 통째로 텍스트
+    list_items = []
+    for ul in page.query_selector_all("ul"):
+        cls = (ul.get_attribute("class") or "")
+        if "info" in cls.lower() or "detail" in cls.lower():
+            for li in ul.query_selector_all("li"):
+                t = (li.inner_text() or "").strip()
+                if t:
+                    list_items.append(t)
+
+    return {
+        "ok": True,
+        "command": "inspect-meta",
+        "detail_url": detail_url,
+        "page_title": page.title(),
+        "pairs": pairs,
+        "list_items": list_items,
+    }
 
 
 def _inspect_provider(page, config: dict, detail_url: str) -> dict:
