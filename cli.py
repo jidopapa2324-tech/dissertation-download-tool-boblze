@@ -15,6 +15,7 @@ import os
 import sys
 
 from riss import browser, download, search
+from riss import inspect as inspect_mod
 
 
 def load_config() -> dict:
@@ -48,6 +49,15 @@ def cmd_search(args: argparse.Namespace, config: dict) -> dict:
     }
 
 
+def cmd_inspect(args: argparse.Namespace, config: dict) -> dict:
+    session = browser.connect(config)
+    try:
+        browser.ensure_logged_in(session.page, config)
+        return inspect_mod.inspect(session.page, config, args.target)
+    finally:
+        session.close()
+
+
 def cmd_download(args: argparse.Namespace, config: dict) -> dict:
     session = browser.connect(config)
     try:
@@ -77,6 +87,9 @@ def main() -> int:
     p_download = sub.add_parser("download", help="지정한 ID(control_no)의 원문 다운로드")
     p_download.add_argument("--ids", nargs="+", required=True)
 
+    p_inspect = sub.add_parser("inspect", help="[개발용] 상세페이지 구조 덤프 (셀렉터 확정용)")
+    p_inspect.add_argument("target", help="control_no 또는 전체 detail_url")
+
     args = parser.parse_args()
 
     try:
@@ -85,6 +98,8 @@ def main() -> int:
             if not args.keyword and not args.author:
                 raise SystemExit("--keyword 또는 --author 중 하나가 필요합니다.")
             out = cmd_search(args, config)
+        elif args.command == "inspect":
+            out = cmd_inspect(args, config)
         else:
             out = cmd_download(args, config)
     except Exception as e:
