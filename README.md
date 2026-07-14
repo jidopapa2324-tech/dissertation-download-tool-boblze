@@ -45,7 +45,22 @@ pip install -r requirements.txt
 playwright install chromium   # 실제로는 CDP attach만 하므로 브라우저 설치 불필요할 수 있음
 ```
 
-## 사람이 쓸 때: 실행.bat (Windows)
+## 사람이 쓸 때 (2): GUI (PySide6)
+
+클릭 기반 화면을 원하면 `GUI실행.bat`을 더블클릭한다. 처음 실행 시 GUI
+라이브러리(PySide6)를 설치할지 물어본다(설치는 한 번만).
+
+```
+pip install -r requirements-gui.txt   # 수동 설치 시
+python gui.py
+```
+
+GUI는 실제 작업을 직접 하지 않고 **기존 `cli.py`를 그대로 호출**한다.
+버튼: 크롬 켜고 로그인 · 검색(저자/키워드) · 결과 체크 후 선택/전체 다운로드 ·
+실패만 재시도 · 인용 내보내기. 자식 프로세스의 진행바·단계·소요시간이 하단
+로그 창에 실시간으로 흐른다. (백엔드/CLI 계약은 변경 없음)
+
+## 사람이 쓸 때 (1): 실행.bat (Windows, cmd 메뉴)
 
 `실행.bat`을 **더블클릭**하면 메뉴가 뜬다. cmd에 명령을 직접 칠 필요가 없다.
 
