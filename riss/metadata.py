@@ -100,3 +100,51 @@ def append(record: dict, config: dict) -> None:
 def load_ids(config: dict) -> set[str]:
     """이미 다운로드(metadata_file 기록)된 id 집합. 중복 다운로드 체크용."""
     return _load_ids(config["metadata_file"])
+
+
+# --- 실패 대기열 (이어받기용) ---------------------------------------
+
+def failed_load(config: dict) -> list[dict]:
+    """실패 목록(failed_file)을 반환한다. 각 항목: {id, title, error}."""
+    path = config.get("failed_file", "data/failed.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def failed_ids(config: dict) -> list[str]:
+    """실패 목록의 id들(순서 유지)."""
+    return [r["id"] for r in failed_load(config) if r.get("id")]
+
+
+def failed_update(results: list[dict], config: dict) -> None:
+    """이번 실행 결과로 실패 목록을 갱신한다.
+
+    - 성공(ok=True, 건너뜀 포함)한 id는 목록에서 제거
+    - 실패한 id는 추가/갱신 (id, title, error)
+    """
+    path = config.get("failed_file", "data/failed.json")
+    current = {r["id"]: r for r in failed_load(config)}
+    for res in results:
+        rid = res.get("id")
+        if not rid:
+            continue
+        if res.get("ok"):
+            current.pop(rid, None)
+        else:
+            entry = index_lookup(rid, config) or {}
+            current[rid] = {
+                "id": rid,
+                "title": entry.get("title", ""),
+                "error": res.get("error", ""),
+            }
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(list(current.values()), f, ensure_ascii=False, indent=2)

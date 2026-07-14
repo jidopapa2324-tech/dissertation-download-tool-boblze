@@ -145,12 +145,17 @@ def _make_reporter():
 
 
 def cmd_download(args: argparse.Namespace, config: dict) -> dict:
-    if args.all:
+    if args.retry_failed:
+        ids = metadata.failed_ids(config)
+        if not ids:
+            return {"ok": True, "command": "download", "results": [],
+                    "note": "실패 목록이 비어 있습니다 (재시도할 항목 없음)."}
+    elif args.all:
         ids = [r["id"] for r in metadata.index_all(config) if r.get("id")]
     else:
         ids = args.ids or []
     if not ids:
-        raise SystemExit("--ids 로 논문 ID를 주거나 --all 을 사용하세요.")
+        raise SystemExit("--ids 로 논문 ID를 주거나 --all / --retry-failed 를 사용하세요.")
     report = _make_reporter() if args.progress else None
     session = browser.connect(config)
     try:
@@ -167,6 +172,7 @@ def cmd_download(args: argparse.Namespace, config: dict) -> dict:
             file=sys.stderr,
             flush=True,
         )
+    metadata.failed_update(results, config)  # 실패 대기열 갱신(성공 제거/실패 추가)
     out = {
         "ok": all(r["ok"] for r in results),
         "command": "download",
@@ -191,6 +197,9 @@ def main() -> int:
     p_download = sub.add_parser("download", help="지정한 ID(control_no)의 원문 다운로드")
     p_download.add_argument("--ids", nargs="+", help="다운로드할 논문 ID들 (띄어쓰기 구분)")
     p_download.add_argument("--all", action="store_true", help="검색된(인덱스의) 전체 다운로드")
+    p_download.add_argument(
+        "--retry-failed", action="store_true", help="이전에 실패한 논문만 다시 시도"
+    )
     p_download.add_argument(
         "--progress", action="store_true", help="진행바/단계를 화면(stderr)에 표시"
     )

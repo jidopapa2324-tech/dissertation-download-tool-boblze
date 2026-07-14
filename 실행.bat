@@ -20,6 +20,7 @@ echo    3. 키워드로 검색
 echo    4. 검색결과 목록 보기
 echo    5. 선택 다운로드 (논문 ID 입력)
 echo    6. 검색된 전체 다운로드
+echo    7. 실패한 논문만 다시 시도
 echo    9. 최신 코드로 업데이트 (git pull)
 echo    0. 종료
 echo ================================================
@@ -31,6 +32,7 @@ if "%sel%"=="3" goto search_keyword
 if "%sel%"=="4" goto listcmd
 if "%sel%"=="5" goto download
 if "%sel%"=="6" goto download_all
+if "%sel%"=="7" goto retry_failed
 if "%sel%"=="9" goto update
 if "%sel%"=="0" exit
 goto menu
@@ -87,6 +89,15 @@ echo 검색된(목록의) 모든 논문을 다운로드합니다. 이미 받은 
 %PY% cli.py download --progress --all
 echo.
 echo 결과를 메모장으로 엽니다. (문제 보고 시 전체 복사 Ctrl+A → Ctrl+C 해서 붙여넣기)
+if exist "data\last_download.json" start "" notepad "data\last_download.json"
+pause
+goto menu
+
+:retry_failed
+echo.
+echo 이전에 실패한 논문만 다시 시도합니다.
+%PY% cli.py download --progress --retry-failed
+echo.
 if exist "data\last_download.json" start "" notepad "data\last_download.json"
 pause
 goto menu
