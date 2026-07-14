@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 from riss import browser, download, metadata, search
 from riss import inspect as inspect_mod
@@ -73,14 +74,33 @@ def cmd_inspect(args: argparse.Namespace, config: dict) -> dict:
 
 
 def _make_reporter():
-    """진행 상황을 stderr에 진행바+단계로 출력하는 콜백을 만든다."""
+    """진행 상황을 stderr에 진행바+단계별 소요시간으로 출력하는 콜백을 만든다.
+
+    각 단계는 '시작 시 바로' 출력하고(멈춤 여부 확인용), 그 단계가 끝나면
+    걸린 시간(초)을 그 아래에 찍는다. 편(paper)마다 총 소요시간도 표시.
+    """
+    st = {"label": None, "t0": None, "paper_t": None}
+
+    def _flush(now):
+        if st["label"] is not None:
+            print(f"        ⏱ {now - st['t0']:.1f}초", file=sys.stderr, flush=True)
+            st["label"] = None
+
     def report(i, total, title, phase, data):
+        now = time.perf_counter()
         short = title if len(title) <= 40 else title[:39] + "…"
         if phase == "start":
+            st["paper_t"] = now
+            st["label"] = None
             print(f"\n[{i}/{total}] {short}", file=sys.stderr, flush=True)
         elif phase == "step":
-            print(f"      - {data}", file=sys.stderr, flush=True)
+            _flush(now)                       # 이전 단계 소요시간 출력
+            st["label"] = data
+            st["t0"] = now
+            print(f"      - {data}", file=sys.stderr, flush=True)  # 새 단계 즉시 표시
         elif phase == "done":
+            _flush(now)                       # 마지막 단계 소요시간 출력
+            total_s = now - st["paper_t"] if st["paper_t"] else 0.0
             if data.get("skipped"):
                 mark = "건너뜀"
             elif data.get("ok"):
@@ -90,7 +110,7 @@ def _make_reporter():
             pct = int(i / total * 100)
             filled = pct // 10
             bar = "█" * filled + "░" * (10 - filled)
-            print(f"      => {mark}", file=sys.stderr, flush=True)
+            print(f"      => {mark}  (총 {total_s:.1f}초)", file=sys.stderr, flush=True)
             print(f"      [{bar}] {pct}%  ({i}/{total})", file=sys.stderr, flush=True)
     return report
 
