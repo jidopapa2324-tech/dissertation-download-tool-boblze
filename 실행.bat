@@ -36,9 +36,11 @@ if "%sel%"=="0" exit
 goto menu
 
 :chrome
-start "" "%CHROME%" --remote-debugging-port=9222 --user-data-dir="C:\chrome-riss"
+start "" "%CHROME%" --remote-debugging-port=9222 --user-data-dir="C:\chrome-riss" "https://kupis.kw.ac.kr/"
 echo.
-echo 크롬을 켰습니다. 그 창에서 RISS(광운대 도서관)에 로그인하세요.
+echo 크롬을 켜고 광운대 포털(kupis.kw.ac.kr)로 이동했습니다.
+echo   1) 로그인 (대학원생 선택 후 아이디/비번)
+echo   2) 로그인 후 https://kupis.kw.ac.kr/schosite/list/1 에서 RISS 접속
 echo 로그인이 끝나면 이 창으로 돌아와 2번(검색)부터 진행하세요.
 pause
 goto menu
