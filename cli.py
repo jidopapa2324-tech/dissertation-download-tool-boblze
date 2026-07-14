@@ -98,6 +98,24 @@ def _make_reporter():
             st["label"] = data
             st["t0"] = now
             print(f"      - {data}", file=sys.stderr, flush=True)  # 새 단계 즉시 표시
+        elif phase == "started":
+            # 다운로드가 시작됨 → 여기서 진행바를 올리고 다음 논문으로 넘어간다.
+            # 파일 저장(마무리)은 뒤이어 겹쳐서 처리되고 'saved'로 통지된다.
+            _flush(now)
+            total_s = now - st["paper_t"] if st["paper_t"] else 0.0
+            pct = int(i / total * 100)
+            filled = pct // 10
+            bar = "█" * filled + "░" * (10 - filled)
+            print(f"      => 다운로드 시작 ✓ (탐색 {total_s:.1f}초) → 다음 논문 진행",
+                  file=sys.stderr, flush=True)
+            print(f"      [{bar}] {pct}%  ({i}/{total})", file=sys.stderr, flush=True)
+        elif phase == "saved":
+            # 백그라운드 저장 마무리 결과 (진행바는 이미 올림)
+            if data.get("ok"):
+                print(f"      ✔ 저장 완료: {short}", file=sys.stderr, flush=True)
+            else:
+                print(f"      ✗ 저장 실패: {short} ({str(data.get('error',''))[:50]})",
+                      file=sys.stderr, flush=True)
         elif phase == "done":
             _flush(now)                       # 마지막 단계 소요시간 출력
             total_s = now - st["paper_t"] if st["paper_t"] else 0.0

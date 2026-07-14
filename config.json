@@ -6,5 +6,6 @@
   "index_file": "data/index.jsonl",
   "default_collection": "all",
   "delay_sec": 1,
-  "timeout_sec": 20
+  "timeout_sec": 20,
+  "overlap_batch": 4
 }

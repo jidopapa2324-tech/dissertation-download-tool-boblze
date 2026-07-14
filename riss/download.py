@@ -18,48 +18,54 @@ from urllib.parse import urlparse
 from . import metadata, selectors
 
 
-def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
-    """논문 1건을 다운로드하고 결과 dict를 반환한다. 예외를 던지지 않는다.
+def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) -> dict:
+    """논문 1건의 '다운로드 시작'까지 진행한다 (저장은 하지 않음).
 
-    step: 진행 상황을 알리는 콜백 step(message). None이면 무시.
+    반환 dict의 "_kind":
+      - "skip"    : 이미 받음. "result"에 최종 결과.
+      - "fail"    : 실패. "result"에 최종 결과.
+      - "started" : 다운로드가 시작됨. download/out_path/meta/provider/_popups 포함.
+    저장/검증/메타기록/팝업정리는 _finalize에서 한다 → 다음 논문과 겹쳐 처리 가능.
     """
     def _step(msg):
         if step:
             step(msg)
 
-    entry = metadata.index_lookup(thesis_id, config)
     if not entry or not entry.get("detail_url"):
-        return {
-            "id": thesis_id,
-            "ok": False,
+        return {"_kind": "fail", "result": {
+            "id": thesis_id, "ok": False,
             "error": "인덱스에 detail_url이 없습니다. 먼저 search로 해당 논문을 찾으세요.",
-        }
+        }}
     detail_url = entry["detail_url"]
 
-    # 파일명은 논문 제목(기본형). 동일 제목의 다른 논문 충돌 시 id 일부를 붙임.
     out_path = _out_path(config, entry.get("title") or thesis_id, thesis_id)
     if os.path.exists(out_path):
         _step("이미 받음 → 건너뜀")
-        return {"id": thesis_id, "ok": True, "file": out_path, "skipped": True}
+        return {"_kind": "skip", "result": {
+            "id": thesis_id, "ok": True, "file": out_path, "skipped": True,
+        }}
+
+    def _fail(msg, provider_url=""):
+        return {"_kind": "fail", "result": {
+            "id": thesis_id, "ok": False, "error": msg, "provider_url": provider_url,
+        }}
 
     try:
         _step("상세페이지 여는 중...")
         page.goto(detail_url, wait_until="domcontentloaded")
         if "login" in (page.url or "").lower():
-            return {"id": thesis_id, "ok": False, "error": "로그인 만료: 다시 로그인 후 재시도"}
+            return _fail("로그인 만료: 다시 로그인 후 재시도")
 
         meta = _parse_detail(page, thesis_id, detail_url, entry)
 
         link = _find_first(page, selectors.FULLTEXT_LINK_CANDIDATES)
         if link is None:
-            return {"id": thesis_id, "ok": False, "error": "'원문보기' 링크를 찾지 못했습니다 (원문 미제공 가능)."}
+            return _fail("'원문보기' 링크를 찾지 못했습니다 (원문 미제공 가능).")
 
         os.makedirs(config["download_dir"], exist_ok=True)
         timeout = config["timeout_sec"] * 1000
         base_host = urlparse(config["base_url"]).netloc
 
-        # '원문보기'는 RISS 중간 로더(UrlLoad.do) 팝업을 띄우고, 그게 외부
-        # 제공처로 리다이렉트된다. 팝업이 RISS를 벗어날 때까지 기다린다.
         _step("원문보기 클릭, 제공처로 이동 중...")
         pages_before = list(page.context.pages)
         try:
@@ -70,13 +76,14 @@ def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
             popup = None
 
         provider = _wait_for_provider(page.context, base_host, pages_before, popup, timeout)
+        # 이 논문 때문에 새로 열린 팝업들(로더/제공처/다운로드창) — 나중에 정리
+        popups = [pg for pg in page.context.pages if pg not in pages_before]
         if provider is None:
-            return {
-                "id": thesis_id,
-                "ok": False,
+            return {"_kind": "fail", "result": {
+                "id": thesis_id, "ok": False,
                 "error": "'원문보기' 후 외부 제공처 창을 찾지 못했습니다.",
                 "provider_url": (popup.url if popup else ""),
-            }
+            }, "_popups": popups}
         try:
             provider.wait_for_load_state("domcontentloaded", timeout=timeout)
         except Exception:
@@ -85,68 +92,155 @@ def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
         meta["provider_url"] = provider_url
 
         if base_host in provider_url:
-            return {
-                "id": thesis_id,
-                "ok": False,
+            return {"_kind": "fail", "result": {
+                "id": thesis_id, "ok": False,
                 "error": "외부 제공처로 리다이렉트되지 않았습니다 (RISS 로더에 머묾).",
                 "provider_url": provider_url,
-            }
+            }, "_popups": popups}
 
-        # 외부 제공처(교보스콜라)에서 '원문저장' 버튼이 나타날 때까지만 기다림
-        # (networkidle 대신 필요한 요소만 기다려 속도 향상)
         dl_button = _find_visible_wait(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES, timeout)
-
-        # 서지정보를 저장한다 (버튼 대기 후 = DOM이 준비된 시점).
         _step("서지정보 수집 중...")
         _capture_provider_bib(provider, meta)
         if dl_button is None:
-            return {
-                "id": thesis_id,
-                "ok": False,
+            return {"_kind": "fail", "result": {
+                "id": thesis_id, "ok": False,
                 "error": "외부 제공처에서 '원문저장' 버튼을 찾지 못했습니다.",
                 "provider_url": provider_url,
-            }
+            }, "_popups": popups}
 
-        # 다운로드는 현재 탭 또는 새 팝업 어디서든 시작될 수 있어 둘 다 대비.
-        _step("PDF 저장 중...")
+        _step("다운로드 시작 중...")
         download = _click_and_capture_download(provider, dl_button, timeout)
+        popups = [pg for pg in page.context.pages if pg not in pages_before]
         if download is None:
-            return {
-                "id": thesis_id,
-                "ok": False,
+            return {"_kind": "fail", "result": {
+                "id": thesis_id, "ok": False,
                 "error": "'원문저장' 클릭 후 다운로드가 시작되지 않았습니다 (뷰어로 열렸을 수 있음).",
                 "provider_url": provider_url,
-            }
-        download.save_as(out_path)
+            }, "_popups": popups}
 
-        meta["file"] = out_path
-        meta["downloaded_at"] = _dt.datetime.now().isoformat(timespec="seconds")
-        metadata.append(meta, config)
-        time.sleep(config["delay_sec"])
-        return {"id": thesis_id, "ok": True, "file": out_path, "provider_url": provider_url}
+        return {
+            "_kind": "started",
+            "id": thesis_id,
+            "download": download,
+            "out_path": out_path,
+            "meta": meta,
+            "provider_url": provider_url,
+            "_popups": popups,
+        }
     except Exception as e:
-        return {"id": thesis_id, "ok": False, "error": str(e)}
+        return _fail(str(e))
+
+
+def _finalize(item: dict, config: dict) -> dict:
+    """시작된 다운로드를 저장→PDF 검증→메타 기록→팝업 정리 후 결과를 반환한다."""
+    thesis_id = item["id"]
+    out_path = item["out_path"]
+    provider_url = item.get("provider_url", "")
+    try:
+        item["download"].save_as(out_path)  # 파일이 완전히 받아질 때까지 대기
+    except Exception as e:
+        _close_popups(item.get("_popups"))
+        return {"id": thesis_id, "ok": False,
+                "error": f"파일 저장 실패: {e}", "provider_url": provider_url}
+
+    # #3 무결성 검증: 실제 PDF인지 확인 (HTML 오류페이지 등을 걸러냄)
+    if not _looks_like_pdf(out_path):
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+        _close_popups(item.get("_popups"))
+        return {"id": thesis_id, "ok": False,
+                "error": "받은 파일이 정상 PDF가 아닙니다 (원문 미제공/오류페이지 가능). 삭제함.",
+                "provider_url": provider_url}
+
+    meta = item["meta"]
+    meta["file"] = out_path
+    meta["downloaded_at"] = _dt.datetime.now().isoformat(timespec="seconds")
+    metadata.append(meta, config)
+    _close_popups(item.get("_popups"))
+    return {"id": thesis_id, "ok": True, "file": out_path, "provider_url": provider_url}
+
+
+def _looks_like_pdf(path: str, min_bytes: int = 1024) -> bool:
+    """저장된 파일이 실제 PDF인지 확인한다 (헤더 %PDF- + 최소 크기)."""
+    try:
+        if os.path.getsize(path) < min_bytes:
+            return False
+        with open(path, "rb") as f:
+            return f.read(5) == b"%PDF-"
+    except Exception:
+        return False
+
+
+def _close_popups(popups) -> None:
+    for pg in (popups or []):
+        try:
+            pg.close()
+        except Exception:
+            pass
+
+
+def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
+    """논문 1건을 받아 최종 결과를 반환한다 (겹치기 없이 단건 처리)."""
+    entry = metadata.index_lookup(thesis_id, config)
+    item = _acquire(page, thesis_id, config, entry, step=step)
+    if item["_kind"] != "started":
+        return item["result"]
+    return _finalize(item, config)
 
 
 def download_many(page, thesis_ids: list[str], config: dict, report=None) -> list[dict]:
-    """여러 논문을 순서대로 받는다.
+    """여러 논문을 받는다. 다운로드가 '시작'되면 곧바로 다음 논문으로 진행하고,
+    파일 저장(마무리)은 뒤이어 겹쳐서 처리한다. 동시에 열리는 팝업 수를
+    config['overlap_batch'](기본 4)로 제한한다.
 
-    report: 진행 표시 콜백 report(i, total, title, phase, data).
-      phase="start"(시작) | "step"(단계 메시지, data=메시지) | "done"(완료, data=결과)
+    report(i, total, title, phase, data):
+      phase="start" | "step"(data=메시지) | "started"(다운로드 시작) |
+            "done"(건너뜀/실패 즉시확정, data=결과) | "saved"(마무리 완료, data=결과)
     """
     total = len(thesis_ids)
-    results = []
+    batch = max(1, int(config.get("overlap_batch", 4)))
+    ordered: dict[int, dict] = {}
+    pending: list[dict] = []
+
+    def flush():
+        for it in pending:
+            res = _finalize(it, config)
+            if report:
+                report(it["_i"], total, it["_title"], "saved", res)
+            ordered[it["_i"]] = res
+        pending.clear()
+
     for i, tid in enumerate(thesis_ids, 1):
         entry = metadata.index_lookup(tid, config)
         title = (entry.get("title") if entry else "") or tid
         if report:
             report(i, total, title, "start", None)
         step = (lambda msg, _i=i, _t=title: report(_i, total, _t, "step", msg)) if report else None
-        r = download_one(page, tid, config, step=step)
-        if report:
-            report(i, total, title, "done", r)
-        results.append(r)
-    return results
+
+        item = _acquire(page, tid, config, entry, step=step)
+        item["_i"] = i
+        item["_title"] = title
+
+        if item["_kind"] == "started":
+            if report:
+                report(i, total, title, "started", None)
+            pending.append(item)
+            if len(pending) >= batch:
+                flush()
+        else:
+            res = item["result"]
+            if report:
+                report(i, total, title, "done", res)
+            ordered[i] = res
+
+        # 정중한 간격 (서버 부하/계정 보호)
+        if i < total:
+            time.sleep(config["delay_sec"])
+
+    flush()
+    return [ordered[k] for k in sorted(ordered)]
 
 
 def _wait_for_provider(context, base_host, pages_before, popup, timeout):
