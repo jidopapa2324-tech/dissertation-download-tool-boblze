@@ -60,6 +60,29 @@ def cmd_inspect(args: argparse.Namespace, config: dict) -> dict:
         session.close()
 
 
+def _make_reporter():
+    """진행 상황을 stderr에 진행바+단계로 출력하는 콜백을 만든다."""
+    def report(i, total, title, phase, data):
+        short = title if len(title) <= 40 else title[:39] + "…"
+        if phase == "start":
+            print(f"\n[{i}/{total}] {short}", file=sys.stderr, flush=True)
+        elif phase == "step":
+            print(f"      - {data}", file=sys.stderr, flush=True)
+        elif phase == "done":
+            if data.get("skipped"):
+                mark = "건너뜀"
+            elif data.get("ok"):
+                mark = "완료 ✓"
+            else:
+                mark = "실패 ✗ (" + str(data.get("error", ""))[:50] + ")"
+            pct = int(i / total * 100)
+            filled = pct // 10
+            bar = "█" * filled + "░" * (10 - filled)
+            print(f"      => {mark}", file=sys.stderr, flush=True)
+            print(f"      [{bar}] {pct}%  ({i}/{total})", file=sys.stderr, flush=True)
+    return report
+
+
 def cmd_download(args: argparse.Namespace, config: dict) -> dict:
     if args.all:
         ids = [r["id"] for r in metadata.index_all(config) if r.get("id")]
@@ -67,12 +90,22 @@ def cmd_download(args: argparse.Namespace, config: dict) -> dict:
         ids = args.ids or []
     if not ids:
         raise SystemExit("--ids 로 논문 ID를 주거나 --all 을 사용하세요.")
+    report = _make_reporter() if args.progress else None
     session = browser.connect(config)
     try:
         browser.ensure_logged_in(session.page, config)
-        results = download.download_many(session.page, ids, config)
+        results = download.download_many(session.page, ids, config, report=report)
     finally:
         session.close()
+    if args.progress:
+        ok_n = sum(1 for r in results if r["ok"] and not r.get("skipped"))
+        skip_n = sum(1 for r in results if r.get("skipped"))
+        fail_n = sum(1 for r in results if not r["ok"])
+        print(
+            f"\n완료: 성공 {ok_n} / 건너뜀 {skip_n} / 실패 {fail_n} (총 {len(results)})",
+            file=sys.stderr,
+            flush=True,
+        )
     return {
         "ok": all(r["ok"] for r in results),
         "command": "download",
@@ -95,6 +128,9 @@ def main() -> int:
     p_download = sub.add_parser("download", help="지정한 ID(control_no)의 원문 다운로드")
     p_download.add_argument("--ids", nargs="+", help="다운로드할 논문 ID들 (띄어쓰기 구분)")
     p_download.add_argument("--all", action="store_true", help="검색된(인덱스의) 전체 다운로드")
+    p_download.add_argument(
+        "--progress", action="store_true", help="진행바/단계를 화면(stderr)에 표시"
+    )
 
     sub.add_parser("list", help="검색된 논문 목록을 사람이 읽기 쉽게 출력")
 

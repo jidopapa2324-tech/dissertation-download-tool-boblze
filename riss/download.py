@@ -18,8 +18,15 @@ from urllib.parse import urlparse
 from . import metadata, selectors
 
 
-def download_one(page, thesis_id: str, config: dict) -> dict:
-    """논문 1건을 다운로드하고 결과 dict를 반환한다. 예외를 던지지 않는다."""
+def download_one(page, thesis_id: str, config: dict, step=None) -> dict:
+    """논문 1건을 다운로드하고 결과 dict를 반환한다. 예외를 던지지 않는다.
+
+    step: 진행 상황을 알리는 콜백 step(message). None이면 무시.
+    """
+    def _step(msg):
+        if step:
+            step(msg)
+
     entry = metadata.index_lookup(thesis_id, config)
     if not entry or not entry.get("detail_url"):
         return {
@@ -32,9 +39,11 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
     # 파일명은 논문 제목(기본형). 동일 제목의 다른 논문 충돌 시 id 일부를 붙임.
     out_path = _out_path(config, entry.get("title") or thesis_id, thesis_id)
     if os.path.exists(out_path):
+        _step("이미 받음 → 건너뜀")
         return {"id": thesis_id, "ok": True, "file": out_path, "skipped": True}
 
     try:
+        _step("상세페이지 여는 중...")
         page.goto(detail_url, wait_until="domcontentloaded")
         if "login" in (page.url or "").lower():
             return {"id": thesis_id, "ok": False, "error": "로그인 만료: 다시 로그인 후 재시도"}
@@ -51,6 +60,7 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
 
         # '원문보기'는 RISS 중간 로더(UrlLoad.do) 팝업을 띄우고, 그게 외부
         # 제공처로 리다이렉트된다. 팝업이 RISS를 벗어날 때까지 기다린다.
+        _step("원문보기 클릭, 제공처로 이동 중...")
         pages_before = list(page.context.pages)
         try:
             with page.expect_popup(timeout=timeout) as pi:
@@ -77,6 +87,7 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
         # 외부 제공처(교보스콜라 등) 페이지의 서지정보를 '지금' 긁어 저장한다.
         # 나중에 다시 찾는 수고를 없애기 위해 페이지 텍스트를 통째로 보관하고,
         # 발행연도/페이지/저자는 미리 뽑아 bib에 넣어둔다.
+        _step("서지정보 수집 중...")
         _capture_provider_bib(provider, meta)
 
         if base_host in provider_url:
@@ -98,6 +109,7 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
             }
 
         # 다운로드는 현재 탭 또는 새 팝업 어디서든 시작될 수 있어 둘 다 대비.
+        _step("PDF 저장 중...")
         download = _click_and_capture_download(provider, dl_button, timeout)
         if download is None:
             return {
@@ -117,8 +129,25 @@ def download_one(page, thesis_id: str, config: dict) -> dict:
         return {"id": thesis_id, "ok": False, "error": str(e)}
 
 
-def download_many(page, thesis_ids: list[str], config: dict) -> list[dict]:
-    return [download_one(page, tid, config) for tid in thesis_ids]
+def download_many(page, thesis_ids: list[str], config: dict, report=None) -> list[dict]:
+    """여러 논문을 순서대로 받는다.
+
+    report: 진행 표시 콜백 report(i, total, title, phase, data).
+      phase="start"(시작) | "step"(단계 메시지, data=메시지) | "done"(완료, data=결과)
+    """
+    total = len(thesis_ids)
+    results = []
+    for i, tid in enumerate(thesis_ids, 1):
+        entry = metadata.index_lookup(tid, config)
+        title = (entry.get("title") if entry else "") or tid
+        if report:
+            report(i, total, title, "start", None)
+        step = (lambda msg, _i=i, _t=title: report(_i, total, _t, "step", msg)) if report else None
+        r = download_one(page, tid, config, step=step)
+        if report:
+            report(i, total, title, "done", r)
+        results.append(r)
+    return results
 
 
 def _wait_for_provider(context, base_host, pages_before, popup, timeout):
