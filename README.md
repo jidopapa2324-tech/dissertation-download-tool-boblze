@@ -45,6 +45,25 @@ pip install -r requirements.txt
 playwright install chromium   # 실제로는 CDP attach만 하므로 브라우저 설치 불필요할 수 있음
 ```
 
+## 배포: 단일 exe (설치 없이 더블클릭)
+
+파이썬/라이브러리 설치 없이 **파일 하나**로 쓰고 싶으면 단일 exe로 빌드한다.
+
+- **빌드는 Windows에서 1회**만 하면 된다 (PyInstaller는 크로스 컴파일 불가 —
+  Windows용 exe는 Windows에서 만들어야 한다).
+- 저장소에서 **`빌드.bat` 더블클릭** → 의존성 설치 후 `pyinstaller RISS다운로더.spec`
+  실행 → `dist\RISS다운로더.exe` (파일 하나) 생성.
+- 그 exe를 원하는 폴더에 두고 더블클릭하면 GUI가 뜬다. 설정/데이터
+  (`config.json`, `data\`, `reference\`)는 exe 옆에 자동 생성된다.
+
+동작 원리: `app.py`가 진입점이며, 인자가 서브커맨드면 CLI로, 아니면 GUI로
+분기한다. 단일 exe는 GUI가 **자기 자신(exe)을 CLI 모드로 재실행**해 작업을
+수행하므로, Playwright(동기 API)가 별도 프로세스에서 돌아 Qt와 충돌하지 않는다.
+크롬 브라우저는 CDP attach 방식이라 exe에 포함하지 않는다(용량 절약).
+
+참고: onefile exe는 첫 실행이 조금 느리고(임시 폴더 압축 해제), 백신 오탐이
+날 수 있으며 용량이 크다(~60–120MB).
+
 ## 사람이 쓸 때 (2): GUI (PySide6)
 
 클릭 기반 화면을 원하면 `GUI실행.bat`을 더블클릭한다. 처음 실행 시 GUI

@@ -2,3 +2,5 @@ data/
 reference/
 __pycache__/
 *.pyc
+build/
+dist/

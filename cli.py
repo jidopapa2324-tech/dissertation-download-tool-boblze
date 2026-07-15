@@ -15,13 +15,13 @@ import os
 import sys
 import time
 
+import paths
 from riss import browser, download, export, metadata, search
 from riss import inspect as inspect_mod
 
 
 def load_config() -> dict:
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-    with open(path, encoding="utf-8") as f:
+    with open(paths.config_path(), encoding="utf-8") as f:
         return json.load(f)
 
 

@@ -12,6 +12,7 @@ import os
 import re
 import sys
 
+import paths
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = paths.runtime_base()
 COLLECTIONS = ["all", "thesis", "article"]
 
 
@@ -147,7 +148,9 @@ class MainWindow(QMainWindow):
         self.btn_update = QPushButton("⟳ 최신 코드 업데이트")
         self.btn_update.clicked.connect(self.on_update)
         top.addWidget(self.btn_login)
-        top.addWidget(self.btn_update)
+        # 단일 exe 배포본에는 git 소스가 없으므로 업데이트 버튼을 숨긴다.
+        if not paths.is_frozen():
+            top.addWidget(self.btn_update)
         top.addStretch(1)
         root.addLayout(top)
 
@@ -293,7 +296,12 @@ class MainWindow(QMainWindow):
         proc.finished.connect(lambda code, _st: self._on_finished(code, done_msg))
         self.proc = proc
         self.statusBar().showMessage(f"실행 중: {args[0]} …")
-        proc.start(sys.executable, [os.path.join(APP_DIR, "cli.py"), *args])
+        # frozen(단일 exe): exe가 자기 자신을 CLI 모드로 재실행.
+        # dev: python cli.py <args>.
+        if paths.is_frozen():
+            proc.start(sys.executable, [*args])
+        else:
+            proc.start(sys.executable, [os.path.join(APP_DIR, "cli.py"), *args])
 
     def _read(self, proc: QProcess, err: bool):
         raw = (proc.readAllStandardError() if err else proc.readAllStandardOutput())
