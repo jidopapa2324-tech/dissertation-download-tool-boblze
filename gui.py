@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QComboBox,
+    QDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -200,6 +202,8 @@ class MainWindow(QMainWindow):
 
         # 4) 작업 버튼
         actions = QHBoxLayout()
+        self.btn_quotes = QPushButton("인용 노트")
+        self.btn_quotes.clicked.connect(self.on_quotes)
         self.btn_dl_sel = QPushButton("선택 다운로드")
         self.btn_dl_sel.clicked.connect(self.on_download_selected)
         self.btn_dl_all = QPushButton("전체 다운로드")
@@ -213,6 +217,7 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.btn_dl_sel)
         actions.addWidget(self.btn_dl_all)
         actions.addWidget(self.btn_retry)
+        actions.addWidget(self.btn_quotes)
         actions.addStretch(1)
         actions.addWidget(self.cmb_fmt)
         actions.addWidget(self.btn_export)
@@ -369,6 +374,16 @@ class MainWindow(QMainWindow):
     def on_retry(self):
         self.run_cli(build_download_args(None, retry_failed=True), "재시도 완료")
 
+    def on_quotes(self):
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "선택 없음", "목록에서 논문을 한 줄 선택하세요.")
+            return
+        paper_id = self.table.item(row, 2).text()
+        title = self.table.item(row, 1).text()
+        dlg = QuoteDialog(self.config, paper_id, title, self)
+        dlg.exec()
+
     def on_export(self):
         fmt = self.cmb_fmt.currentText()
         ext = {"bibtex": "bib", "ris": "ris", "csljson": "json",
@@ -376,6 +391,126 @@ class MainWindow(QMainWindow):
         name = "bibliography" if fmt in ("apa", "korean") else "citations"
         out = os.path.join("reference", f"{name}_{fmt}.{ext}")
         self.run_cli(build_export_args(fmt, out), f"내보내기 완료 → {out}")
+
+
+class QuoteDialog(QDialog):
+    """인용 노트: PDF 텍스트에서 문장 선택 → 저장(서지·페이지 첨부)·복사·밑줄."""
+
+    def __init__(self, config: dict, paper_id: str, title: str, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.paper_id = paper_id
+        self.setWindowTitle(f"인용 노트 — {title}")
+        self.resize(820, 620)
+
+        from riss import quotes as q  # 지연 import (PyMuPDF)
+        self.q = q
+
+        root = QVBoxLayout(self)
+        root.addWidget(QLabel(f"[{title}]  문장을 드래그 선택한 뒤 '인용 저장'을 누르세요."))
+
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setFont(QFont("Consolas", 10))
+        root.addWidget(self.text, 3)
+
+        row = QHBoxLayout()
+        self.btn_save = QPushButton("인용 저장")
+        self.btn_save.clicked.connect(self._save_selection)
+        self.cmb_style = QComboBox()
+        self.cmb_style.addItems(["korean", "apa"])
+        self.btn_copy = QPushButton("선택 인용 복사")
+        self.btn_copy.clicked.connect(self._copy_selected_quote)
+        self.btn_notes = QPushButton("노트 내보내기")
+        self.btn_notes.clicked.connect(self._export_notes)
+        row.addWidget(self.btn_save)
+        row.addStretch(1)
+        row.addWidget(QLabel("스타일"))
+        row.addWidget(self.cmb_style)
+        row.addWidget(self.btn_copy)
+        row.addWidget(self.btn_notes)
+        root.addLayout(row)
+
+        root.addWidget(QLabel("저장된 인용 (더블클릭 = 복사)"))
+        self.qlist = QListWidget()
+        self.qlist.itemDoubleClicked.connect(lambda _it: self._copy_selected_quote())
+        root.addWidget(self.qlist, 2)
+
+        self.status = QLabel("")
+        root.addWidget(self.status)
+
+        self._load_pdf_text()
+        self._refresh_quotes()
+
+    def _load_pdf_text(self):
+        rec = self.q.find_record(self.config, self.paper_id)
+        if not rec or not rec.get("file") or not os.path.exists(rec["file"]):
+            self.text.setPlainText("이 논문의 다운로드된 PDF를 찾지 못했습니다.\n"
+                                   "먼저 해당 논문을 다운로드하세요.")
+            self.btn_save.setEnabled(False)
+            return
+        try:
+            pages = self.q.extract_pages(rec["file"])
+        except Exception as e:
+            self.text.setPlainText(f"PDF 텍스트 추출 실패: {e}")
+            self.btn_save.setEnabled(False)
+            return
+        if not any(p.strip() for p in pages):
+            self.text.setPlainText("이 PDF는 텍스트가 없습니다(스캔본으로 보임).\n"
+                                   "인용문 추출/밑줄이 불가합니다.")
+            self.btn_save.setEnabled(False)
+            return
+        blocks = []
+        for i, t in enumerate(pages, 1):
+            blocks.append(f"────── p.{i} ──────\n{t.strip()}")
+        self.text.setPlainText("\n\n".join(blocks))
+
+    def _selected_text(self) -> str:
+        # Qt는 문단 구분에 U+2029를 쓰므로 공백으로 정리
+        return " ".join(self.text.textCursor().selectedText().split())
+
+    def _save_selection(self):
+        sel = self._selected_text()
+        if not sel:
+            QMessageBox.information(self, "선택 없음", "PDF 텍스트에서 문장을 드래그하세요.")
+            return
+        res = self.q.add_quote(self.config, self.paper_id, sel)
+        if not res.get("ok"):
+            QMessageBox.warning(self, "저장 실패", res.get("error", ""))
+            return
+        page = res["quote"].get("page") or "?"
+        mark = "밑줄 O" if res.get("annotated") else "밑줄 X(문장 못 찾음)"
+        self.status.setText(f"저장됨: p.{page}, {mark}")
+        self._refresh_quotes()
+
+    def _refresh_quotes(self):
+        self.qlist.clear()
+        self._quotes = self.q.list_quotes(self.config, self.paper_id)
+        style = self.cmb_style.currentText()
+        for entry in self._quotes:
+            self.qlist.addItem(self.q.format_quote(entry, style))
+
+    def _copy_selected_quote(self):
+        row = self.qlist.currentRow()
+        if row < 0 or row >= len(self._quotes):
+            QMessageBox.information(self, "선택 없음", "저장된 인용 목록에서 하나를 고르세요.")
+            return
+        style = self.cmb_style.currentText()
+        text = self.q.format_quote(self._quotes[row], style)
+        QApplication.clipboard().setText(text)
+        self.status.setText("복사됨: " + text[:60])
+
+    def _export_notes(self):
+        style = self.cmb_style.currentText()
+        text = self.q.export_notes(self.config, style)
+        out = os.path.join("reference", f"notes_{style}.md")
+        d = os.path.dirname(out)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(text)
+        self.status.setText(f"노트 저장: {out}")
+        QMessageBox.information(self, "내보내기", f"저장 완료:\n{out}")
 
 
 def main():

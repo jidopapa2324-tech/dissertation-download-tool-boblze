@@ -13,7 +13,7 @@ from PyInstaller.utils.hooks import collect_all
 # Playwright(node 드라이버 포함)와 PySide6를 통째로 수집.
 # 브라우저 바이너리는 CDP attach 방식이라 불필요(용량 절약).
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("playwright", "PySide6", "shiboken6"):
+for pkg in ("playwright", "PySide6", "shiboken6", "pymupdf"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
@@ -24,6 +24,7 @@ datas += [("config.json", ".")]
 hiddenimports += [
     "riss", "riss.browser", "riss.search", "riss.download",
     "riss.metadata", "riss.export", "riss.inspect", "riss.selectors",
+    "riss.quotes", "pymupdf", "fitz",
     "cli", "gui", "paths",
 ]
 

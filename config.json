@@ -5,6 +5,8 @@
   "metadata_file": "data/metadata.jsonl",
   "index_file": "data/index.jsonl",
   "failed_file": "data/failed.json",
+  "quotes_file": "data/quotes.jsonl",
+  "annotated_dir": "reference/annotated",
   "default_collection": "all",
   "delay_sec": 1,
   "timeout_sec": 20,

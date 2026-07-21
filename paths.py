@@ -11,7 +11,10 @@ import shutil
 import sys
 
 # 서브커맨드 목록 — app.py의 GUI/CLI 디스패치와 공유
-SUBCOMMANDS = {"search", "download", "export", "list", "library", "inspect"}
+SUBCOMMANDS = {
+    "search", "download", "export", "list", "library", "inspect",
+    "quote", "quotes", "notes", "pdftext",
+}
 
 
 def is_frozen() -> bool:

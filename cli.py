@@ -16,7 +16,7 @@ import sys
 import time
 
 import paths
-from riss import browser, download, export, metadata, search
+from riss import browser, download, export, metadata, quotes, search
 from riss import inspect as inspect_mod
 
 
@@ -215,6 +215,20 @@ def main() -> int:
 
     sub.add_parser("library", help="다운로드한 참고문헌을 정리해 목록으로 출력")
 
+    p_quote = sub.add_parser("quote", help="인용문을 저장(서지·페이지 첨부, 밑줄 사본 생성)")
+    p_quote.add_argument("--id", required=True, help="논문 id(control_no)")
+    p_quote.add_argument("--text", required=True, help="인용할 문장")
+
+    p_quotes = sub.add_parser("quotes", help="저장된 인용문 목록 출력")
+    p_quotes.add_argument("--id", help="특정 논문의 인용만")
+
+    p_notes = sub.add_parser("notes", help="인용문을 논문별 노트로 내보내기")
+    p_notes.add_argument("--style", default="korean", choices=["korean", "apa"])
+    p_notes.add_argument("--out", help="저장 파일 (생략 시 화면 출력)")
+
+    p_pdftext = sub.add_parser("pdftext", help="다운로드한 PDF의 텍스트를 출력")
+    p_pdftext.add_argument("--id", required=True, help="논문 id(control_no)")
+
     p_inspect = sub.add_parser("inspect", help="[개발용] 상세페이지 구조 덤프 (셀렉터 확정용)")
     p_inspect.add_argument("target", help="control_no 또는 전체 detail_url")
     p_inspect.add_argument(
@@ -239,6 +253,28 @@ def main() -> int:
                 print(f"{i:3}. {r.get('title', '')}  [{r.get('id', '')}]")
             print(f"\n총 {len(records)}건 (data/index.jsonl)")
             return 0
+        if args.command == "quotes":
+            for i, q in enumerate(quotes.list_quotes(config, args.id), 1):
+                print(f"{i:3}. {quotes.format_quote(q)}  [{q.get('id','')}]")
+            return 0
+        if args.command == "notes":
+            text = quotes.export_notes(config, args.style)
+            if args.out:
+                d = os.path.dirname(args.out)
+                if d:
+                    os.makedirs(d, exist_ok=True)
+                with open(args.out, "w", encoding="utf-8") as f:
+                    f.write(text)
+                print(f"저장 완료: {args.out}", file=sys.stderr)
+            else:
+                print(text)
+            return 0
+        if args.command == "pdftext":
+            rec = quotes.find_record(config, args.id)
+            if not rec or not rec.get("file"):
+                raise SystemExit("해당 논문 PDF를 찾지 못했습니다 (먼저 다운로드하세요).")
+            print("\n".join(quotes.extract_pages(rec["file"])))
+            return 0
         if args.command == "library":
             items = export.library(config)
             for i, it in enumerate(items, 1):
@@ -260,7 +296,10 @@ def main() -> int:
             else:
                 print(text)
             return 0
-        if args.command == "search":
+        if args.command == "quote":
+            out = quotes.add_quote(config, args.id, args.text)
+            out["command"] = "quote"
+        elif args.command == "search":
             if not args.keyword and not args.author:
                 raise SystemExit("--keyword 또는 --author 중 하나가 필요합니다.")
             out = cmd_search(args, config)
