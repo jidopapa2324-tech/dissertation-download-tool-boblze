@@ -1,0 +1,47 @@
+name: build-exe
+
+# Windows에서 단일 exe를 빌드해 아티팩트로 올린다.
+# 사용자는 GitHub의 Actions 실행 결과에서 exe를 내려받는다(로컬 빌드 불필요).
+
+on:
+  workflow_dispatch:        # 수동 실행 버튼
+  push:
+    branches:
+      - claude/dissertation-download-tool-boblze
+    paths:                  # 코드/빌드 관련 변경 때만
+      - "**.py"
+      - "*.spec"
+      - "requirements*.txt"
+      - ".github/workflows/build-exe.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 의존성 설치
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+          pip install -r requirements-gui.txt
+
+      - name: exe 빌드
+        shell: pwsh
+        run: |
+          $spec = (Get-ChildItem -Filter *.spec | Select-Object -First 1).Name
+          Write-Host "spec: $spec"
+          pyinstaller "$spec" --noconfirm
+
+      - name: exe 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: RISS다운로더-exe
+          path: dist/*.exe
+          if-no-files-found: error
