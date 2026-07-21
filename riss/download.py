@@ -39,6 +39,14 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
         }}
     detail_url = entry["detail_url"]
 
+    # 학술지(저널) 자체 레코드는 원문이 없다 → 즉시 건너뜀(20초 타임아웃/재시도 방지).
+    if selectors.P_MAT_TYPE_JOURNAL in detail_url:
+        _step("학술지 레코드 → 건너뜀(원문 없음)")
+        return {"_kind": "skip", "result": {
+            "id": thesis_id, "ok": True, "skipped": True, "file": "",
+            "reason": "학술지(저널) 레코드 — 원문 없음",
+        }}
+
     out_path = _out_path(config, entry.get("title") or thesis_id, thesis_id)
     if os.path.exists(out_path):
         _step("이미 받음 → 건너뜀")

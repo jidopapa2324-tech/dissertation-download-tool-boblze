@@ -48,6 +48,10 @@ FIELD_CREATOR = "znCreator"  # 저자 검색 필드 코드
 # 검색 결과에서 논문 고유 ID(control_no)를 뽑는 정규식
 CONTROL_NO_PATTERN = r"control_no=([0-9a-zA-Z]+)"
 
+# 학술지(저널) 자체 레코드의 자료유형(p_mat_type). 논문이 아니라 컨테이너
+# 레코드라 원문 파일이 없다 → 다운로드 시 즉시 건너뛴다(타임아웃/재시도 낭비 방지).
+P_MAT_TYPE_JOURNAL = "3a11008f85f7c51d"
+
 # 검색 결과 페이지에서 상세페이지로 가는 앵커. 이 앵커의 href에
 # 완전한 DetailView URL(p_mat_type + control_no 포함)이 들어있어,
 # 다운로드 때 URL을 재조립할 필요 없이 그대로 재사용한다.
