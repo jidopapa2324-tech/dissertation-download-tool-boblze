@@ -10,12 +10,50 @@ ID = RISS control_no. detail_url은 index_file(검색 결과)에서 조회한다
 """
 
 import datetime as _dt
+import json
 import os
 import re
 import time
 from urllib.parse import urlparse
 
 from . import metadata, selectors
+
+
+def _dump_diagnostics(config: dict, thesis_id: str, page, note: str = "") -> None:
+    """실패한 제공처 페이지의 구조를 저장한다(다양한 환경 대응용 진단).
+
+    사용자가 매번 inspect를 돌리지 않아도, 실패 논문의 제공처 페이지 정보가
+    data/diagnostics/{id}.json 에 자동 축적된다 → 이 파일로 처리 로직을 개선.
+    """
+    try:
+        dd = config.get("diagnostics_dir", "data/diagnostics")
+        os.makedirs(dd, exist_ok=True)
+        links = []
+        for a in page.query_selector_all("a"):
+            t = (a.inner_text() or "").strip()
+            href = a.get_attribute("href") or ""
+            oc = a.get_attribute("onclick") or ""
+            if t or href or oc:
+                links.append({"text": t[:80], "href": href[:200], "onclick": oc[:160]})
+        buttons = []
+        for b in page.query_selector_all("button, input[type=button], input[type=submit]"):
+            t = (b.inner_text() or b.get_attribute("value") or "").strip()
+            buttons.append({
+                "text": t[:80],
+                "class": (b.get_attribute("class") or "")[:80],
+                "onclick": (b.get_attribute("onclick") or "")[:160],
+            })
+        iframes = [f.get_attribute("src") for f in page.query_selector_all("iframe")
+                   if f.get_attribute("src")]
+        data = {
+            "id": thesis_id, "note": note,
+            "final_url": page.url, "title": page.title(),
+            "links": links[:120], "buttons": buttons[:60], "iframes": iframes[:20],
+        }
+        with open(os.path.join(dd, f"{thesis_id}.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass  # 진단 저장 실패는 무시
 
 
 def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) -> dict:
@@ -103,6 +141,7 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
         meta["provider_url"] = provider_url
 
         if base_host in provider_url:
+            _dump_diagnostics(config, thesis_id, provider, "리다이렉트 실패(로더 잔류)")
             return {"_kind": "fail", "result": {
                 "id": thesis_id, "ok": False,
                 "error": "외부 제공처로 리다이렉트되지 않았습니다 (RISS 로더에 머묾).",
@@ -114,9 +153,10 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
         _step("서지정보 수집 중...")
         _capture_provider_bib(provider, meta)
         if dl_button is None:
+            _dump_diagnostics(config, thesis_id, provider, "다운로드 버튼 못찾음")
             return {"_kind": "fail", "result": {
                 "id": thesis_id, "ok": False,
-                "error": "외부 제공처에서 '원문저장' 버튼을 찾지 못했습니다.",
+                "error": "외부 제공처에서 다운로드 버튼을 찾지 못했습니다 (진단 저장됨).",
                 "provider_url": provider_url,
                 "retryable": True,
             }, "_popups": popups}
@@ -125,9 +165,10 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
         download = _click_and_capture_download(provider, dl_button, timeout)
         popups = [pg for pg in page.context.pages if pg not in pages_before]
         if download is None:
+            _dump_diagnostics(config, thesis_id, provider, "클릭 후 다운로드 안시작(뷰어 가능)")
             return {"_kind": "fail", "result": {
                 "id": thesis_id, "ok": False,
-                "error": "'원문저장' 클릭 후 다운로드가 시작되지 않았습니다 (뷰어로 열렸을 수 있음).",
+                "error": "다운로드가 시작되지 않았습니다 (뷰어로 열렸을 수 있음, 진단 저장됨).",
                 "provider_url": provider_url,
                 "retryable": True,
             }, "_popups": popups}

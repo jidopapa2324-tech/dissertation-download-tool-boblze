@@ -77,14 +77,24 @@ FULLTEXT_LINK_CANDIDATES = [
 # onclick이 비어 JS로 바인딩돼 있으므로 텍스트로 클릭해 핸들러를 실행한다.
 # 중복 배치(상단/플로팅)가 있어 '보이는' 요소를 클릭한다(download._find_first).
 PROVIDER_DOWNLOAD_CANDIDATES = [
+    # 교보스콜라
     "a:has-text('원문저장')",
     "button:has-text('원문저장')",
+    # 공통/여러 제공처(DBpia·KISS·earticle 등)
     "a:has-text('PDF 다운로드')",
     "a:has-text('원문 다운로드')",
+    "a:has-text('전체 원문')",
+    "a:has-text('내려받기')",
     "a:has-text('다운로드')",
     "button:has-text('다운로드')",
+    "button:has-text('내려받기')",
+    "button:has-text('저장')",
+    "a:has-text('PDF')",
+    "button:has-text('PDF')",
     "a[href$='.pdf']",
     "a[href*='download']",
+    "a[href*='fulltext']",
+    "a[href*='pdf']",
 ]
 
 # 서지정보 파싱 후보 (label 텍스트 → 값). 상세페이지의 정의목록(dl/dt/dd)

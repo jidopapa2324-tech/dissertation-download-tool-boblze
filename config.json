@@ -7,6 +7,7 @@
   "failed_file": "data/failed.json",
   "quotes_file": "data/quotes.jsonl",
   "annotated_dir": "reference/annotated",
+  "diagnostics_dir": "data/diagnostics",
   "default_collection": "all",
   "delay_sec": 1,
   "timeout_sec": 20,
