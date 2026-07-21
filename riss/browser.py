@@ -35,13 +35,25 @@ def connect(config: dict) -> Session:
     """
     host = urlparse(config["base_url"]).netloc
     pw = sync_playwright().start()
-    try:
-        browser = pw.chromium.connect_over_cdp(config["cdp_url"])
-    except Exception as e:
+    # localhost가 IPv6(::1)로 해석돼 연결이 거부되는 경우가 많아, 127.0.0.1로도 시도한다.
+    raw = config["cdp_url"]
+    candidates = [raw]
+    if "localhost" in raw:
+        candidates.append(raw.replace("localhost", "127.0.0.1"))
+    browser = None
+    last_err = None
+    for url in candidates:
+        try:
+            browser = pw.chromium.connect_over_cdp(url)
+            break
+        except Exception as e:
+            last_err = e
+    if browser is None:
         pw.stop()
         raise RuntimeError(
             "브라우저 연결 실패: Chrome을 --remote-debugging-port=9222 로 "
-            f"실행했는지, cdp_url({config['cdp_url']})이 맞는지 확인하세요. ({e})"
+            f"실행했는지, cdp_url({raw})이 맞는지 확인하세요. "
+            f"(방화벽/포트 사용중일 수도 있음) ({last_err})"
         )
 
     contexts = browser.contexts
