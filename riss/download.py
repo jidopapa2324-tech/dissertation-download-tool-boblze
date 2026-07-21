@@ -14,9 +14,63 @@ import json
 import os
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from . import metadata, selectors
+
+
+def _is_pdf_url(url: str) -> bool:
+    """URL이 PDF를 가리키는지(경로 .pdf 또는 /pdf/ 포함) 판단."""
+    try:
+        low = (url or "").lower()
+        return urlparse(low).path.endswith(".pdf") or "/pdf/" in low
+    except Exception:
+        return False
+
+
+def _real_pdf_url(url: str) -> str:
+    """뷰어 URL의 file=<인코딩된 주소>에서 원본 PDF 주소를 추출한다(ezPDF 등).
+
+    riss_paper_surfer 참고: 국내 제공처 다수가 ezPDF 뷰어를 쓰며, 실제 PDF는
+    ?file=<urlencoded> 파라미터에 들어있다.
+    """
+    try:
+        m = re.search(r"[?&]file=([^&]+)", url)
+        if m:
+            dec = unquote(m.group(1))
+            if dec.startswith("http"):
+                return dec
+    except Exception:
+        pass
+    return url
+
+
+def _save_url(context, url: str, out_path: str, timeout_ms: int = 30000) -> bool:
+    """브라우저 컨텍스트의 쿠키(로그인 세션)로 PDF를 직접 GET해 저장한다."""
+    if not context or not url:
+        return False
+    try:
+        resp = context.request.get(url, timeout=timeout_ms)
+        if not resp.ok:
+            return False
+        body = resp.body()
+        if not body:
+            return False
+        with open(out_path, "wb") as f:
+            f.write(body)
+        return True
+    except Exception:
+        return False
+
+
+def _wait_for_pdf(page, holder: dict, timeout_ms: int) -> None:
+    """holder['url']이 채워질 때까지(자동 로드되는 PDF 응답) 잠깐 대기."""
+    deadline = time.time() + min(timeout_ms, 15000) / 1000.0
+    while time.time() < deadline and not holder.get("url"):
+        try:
+            page.wait_for_timeout(250)
+        except Exception:
+            break
 
 
 def _dump_diagnostics(config: dict, thesis_id: str, page, note: str = "") -> None:
@@ -149,26 +203,49 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
                 "retryable": True,
             }, "_popups": popups}
 
-        dl_button = _find_visible_wait(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES, timeout)
-        _step("서지정보 수집 중...")
-        _capture_provider_bib(provider, meta)
-        if dl_button is None:
-            _dump_diagnostics(config, thesis_id, provider, "다운로드 버튼 못찾음")
-            return {"_kind": "fail", "result": {
-                "id": thesis_id, "ok": False,
-                "error": "외부 제공처에서 다운로드 버튼을 찾지 못했습니다 (진단 저장됨).",
-                "provider_url": provider_url,
-                "retryable": True,
-            }, "_popups": popups}
+        # 제공처가 PDF를 로드하면 그 URL을 잡는다(버튼 없이도, ezPDF file= 대응).
+        # riss_paper_surfer 방식: 탭/응답의 .pdf·/pdf/·file= 를 감지해 직접 받는다.
+        pdf_holder: dict = {}
+        ctx = page.context
 
-        _step("다운로드 시작 중...")
-        download = _click_and_capture_download(provider, dl_button, timeout)
+        def _on_resp(resp, _h=pdf_holder):
+            if _h.get("url"):
+                return
+            try:
+                u = resp.url
+                ct = (resp.headers or {}).get("content-type", "").lower()
+            except Exception:
+                return
+            if "application/pdf" in ct or _is_pdf_url(u):
+                _h["url"] = _real_pdf_url(u)
+
+        ctx.on("response", _on_resp)
+        try:
+            dl_button = _find_visible_wait(provider, selectors.PROVIDER_DOWNLOAD_CANDIDATES, timeout)
+            _step("서지정보 수집 중...")
+            _capture_provider_bib(provider, meta)
+
+            _step("다운로드 시작 중...")
+            download = None
+            if dl_button is not None:
+                download = _click_and_capture_download(provider, dl_button, timeout)
+            if download is None and not pdf_holder.get("url"):
+                # 버튼이 없거나 다운로드 이벤트가 없으면, 자동 로드되는 PDF를 잠깐 기다림
+                _wait_for_pdf(provider, pdf_holder, timeout)
+        finally:
+            try:
+                ctx.remove_listener("response", _on_resp)
+            except Exception:
+                pass
+
         popups = [pg for pg in page.context.pages if pg not in pages_before]
-        if download is None:
-            _dump_diagnostics(config, thesis_id, provider, "클릭 후 다운로드 안시작(뷰어 가능)")
+        pdf_url = pdf_holder.get("url")
+        if download is None and not pdf_url:
+            note = "버튼 못찾음/PDF URL 없음" if dl_button is None else "클릭 후 다운로드 안시작"
+            _dump_diagnostics(config, thesis_id, provider, note)
             return {"_kind": "fail", "result": {
                 "id": thesis_id, "ok": False,
-                "error": "다운로드가 시작되지 않았습니다 (뷰어로 열렸을 수 있음, 진단 저장됨).",
+                "error": "다운로드/PDF 주소를 찾지 못했습니다 (진단 저장됨).",
                 "provider_url": provider_url,
                 "retryable": True,
             }, "_popups": popups}
@@ -177,6 +254,8 @@ def _acquire(page, thesis_id: str, config: dict, entry: dict | None, step=None) 
             "_kind": "started",
             "id": thesis_id,
             "download": download,
+            "pdf_url": pdf_url,
+            "context": ctx,
             "out_path": out_path,
             "meta": meta,
             "provider_url": provider_url,
@@ -191,8 +270,24 @@ def _finalize(item: dict, config: dict) -> dict:
     thesis_id = item["id"]
     out_path = item["out_path"]
     provider_url = item.get("provider_url", "")
+    dl = item.get("download")
+    pdf_url = item.get("pdf_url")
     try:
-        item["download"].save_as(out_path)  # 파일이 완전히 받아질 때까지 대기
+        if dl is not None:
+            dl.save_as(out_path)  # 다운로드 이벤트: 파일 완성까지 대기
+        elif pdf_url:
+            # 폴백: 감지한 PDF 주소를 브라우저 쿠키로 직접 GET
+            if not _save_url(item.get("context"), pdf_url, out_path,
+                             config.get("timeout_sec", 20) * 1000):
+                _close_popups(item.get("_popups"))
+                return {"id": thesis_id, "ok": False,
+                        "error": "PDF 주소 직접 다운로드 실패.", "provider_url": provider_url,
+                        "retryable": True}
+        else:
+            _close_popups(item.get("_popups"))
+            return {"id": thesis_id, "ok": False,
+                    "error": "다운로드할 대상이 없습니다.", "provider_url": provider_url,
+                    "retryable": True}
     except Exception as e:
         _close_popups(item.get("_popups"))
         return {"id": thesis_id, "ok": False,
