@@ -75,11 +75,7 @@ def build_export_args(fmt: str, out_path: str) -> list[str]:
 
 
 def load_config() -> dict:
-    try:
-        with open(os.path.join(APP_DIR, "config.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return paths.load_config()
 
 
 def _read_jsonl(path: str) -> list[dict]:

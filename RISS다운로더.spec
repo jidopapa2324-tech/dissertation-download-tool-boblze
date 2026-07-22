@@ -23,8 +23,7 @@ for pkg in ("playwright", "pymupdf"):
     binaries += b
     hiddenimports += h
 
-# 기본 config.json을 번들(최초 실행 시 exe 옆으로 복사됨) + 우리 모듈 포함.
-datas += [("config.json", ".")]
+# 기본 설정은 코드(paths.DEFAULT_CONFIG)에 내장 — config.json 번들 불필요.
 hiddenimports += [
     "riss", "riss.browser", "riss.search", "riss.download",
     "riss.metadata", "riss.export", "riss.inspect", "riss.selectors",

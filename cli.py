@@ -21,8 +21,7 @@ from riss import inspect as inspect_mod
 
 
 def load_config() -> dict:
-    with open(paths.config_path(), encoding="utf-8") as f:
-        return json.load(f)
+    return paths.load_config()
 
 
 def _save_result(out: dict, config: dict, name: str) -> None:
