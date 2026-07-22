@@ -62,7 +62,11 @@ goto menu
 :search_keyword
 echo.
 set /p kw=검색어 입력:
-%PY% cli.py search --keyword "%kw%" --collection article
+set "DOPT="
+set /p dchk=국내박사만 검색할까요? (y/N):
+if /i "%dchk%"=="y" set "DOPT=--doctoral --collection thesis"
+if not defined DOPT set "DOPT=--collection article"
+%PY% cli.py search --keyword "%kw%" %DOPT% --fulltext
 echo.
 echo --- 검색 결과 목록 ---
 %PY% cli.py list

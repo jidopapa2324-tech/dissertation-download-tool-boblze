@@ -19,6 +19,8 @@ def search(
     author: str | None = None,
     collection: str = "all",
     max_pages: int = 3,
+    doctoral: bool = False,
+    fulltext_only: bool = False,
 ) -> list[dict]:
     """RISS를 검색해 결과 목록을 반환한다.
 
@@ -26,6 +28,8 @@ def search(
       - keyword: 통합/키워드 검색 (query=)
       - author : 저자 상세검색 (queryText=znCreator,<author>)
     collection: "all" | "thesis" | "article" (selectors.COLLECTIONS)
+    doctoral: True면 학위유형=국내박사 필터 적용(학위논문 컬렉션으로 강제).
+    fulltext_only: True면 원문있음 필터 적용(받을 수 있는 것만).
 
     반환: dict 리스트. 키: id, title, detail_url, collection.
     (저자/연도/대학 등 상세 서지는 다운로드 시 상세페이지에서 채운다.)
@@ -35,11 +39,15 @@ def search(
         raise ValueError("keyword 또는 author 중 하나는 필요합니다.")
 
     col_name = selectors.COLLECTIONS.get(collection, collection)
+    if doctoral:
+        col_name = selectors.COLLECTIONS["thesis"]  # 국내박사 필터는 학위논문에만 유효
+    ex_query, ex_text = _build_filters(doctoral, fulltext_only)
     seen: dict[str, dict] = {}
 
     for page_idx in range(max_pages):
         start_count = page_idx * 10
-        url = _build_url(config, keyword, author, col_name, start_count, page_idx + 1)
+        url = _build_url(config, keyword, author, col_name, start_count, page_idx + 1,
+                         ex_query, ex_text)
         page.goto(url, wait_until="domcontentloaded")
         # networkidle(최대 30초)를 기다리지 않고, 결과 링크가 나타나면 바로 진행
         try:
@@ -66,10 +74,23 @@ def search(
     return results
 
 
-def _build_url(config, keyword, author, col_name, start_count, page_number) -> str:
+def _build_filters(doctoral: bool, fulltext_only: bool) -> tuple[str, str]:
+    """선택된 필터들을 exQuery/exQueryText 조각으로 이어 붙인다."""
+    frags = []
+    if doctoral:
+        frags.append(selectors.FILTER_DOCTORAL)
+    if fulltext_only:
+        frags.append(selectors.FILTER_FULLTEXT)
+    ex_query = "".join(f[0] for f in frags)
+    ex_text = "".join(f[1] for f in frags)
+    return ex_query, ex_text
+
+
+def _build_url(config, keyword, author, col_name, start_count, page_number,
+               ex_query="", ex_text="") -> str:
     base = config["base_url"]
     if author:
-        return selectors.FIELD_SEARCH_URL.format(
+        url = selectors.FIELD_SEARCH_URL.format(
             base_url=base,
             field=selectors.FIELD_CREATOR,
             value=quote(author),
@@ -77,13 +98,17 @@ def _build_url(config, keyword, author, col_name, start_count, page_number) -> s
             start_count=start_count,
             page_number=page_number,
         )
-    return selectors.KEYWORD_SEARCH_URL.format(
-        base_url=base,
-        query=quote(keyword),
-        col_name=col_name,
-        start_count=start_count,
-        page_number=page_number,
-    )
+    else:
+        url = selectors.KEYWORD_SEARCH_URL.format(
+            base_url=base,
+            query=quote(keyword),
+            col_name=col_name,
+            start_count=start_count,
+            page_number=page_number,
+        )
+    if ex_query:
+        url += "&exQuery=" + quote(ex_query) + "&exQueryText=" + quote(ex_text)
+    return url
 
 
 def _parse_result_page(page, config: dict, col_name: str) -> list[dict]:

@@ -18,6 +18,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -44,10 +45,16 @@ COLLECTIONS = ["all", "thesis", "article"]
 # --------------------------------------------------------------------------
 # 순수 함수 (브라우저 불필요, 단위 테스트 가능) — cli.py 인자 조립
 # --------------------------------------------------------------------------
-def build_search_args(mode: str, value: str, collection: str, max_pages: int = 3) -> list[str]:
+def build_search_args(mode: str, value: str, collection: str, max_pages: int = 3,
+                      doctoral: bool = False, fulltext: bool = False) -> list[str]:
     """검색 명령 인자. mode: 'author' | 'keyword'."""
     flag = "--author" if mode == "author" else "--keyword"
-    return ["search", flag, value, "--collection", collection, "--max-pages", str(max_pages)]
+    args = ["search", flag, value, "--collection", collection, "--max-pages", str(max_pages)]
+    if doctoral:
+        args.append("--doctoral")
+    if fulltext:
+        args.append("--fulltext")
+    return args
 
 
 def build_download_args(ids: list[str] | None, *, all_: bool = False,
@@ -179,6 +186,10 @@ class MainWindow(QMainWindow):
         search.addWidget(self.ed_query, 1)
         search.addWidget(QLabel("범위"))
         search.addWidget(self.cmb_col)
+        self.chk_doctoral = QCheckBox("국내박사만")
+        self.chk_fulltext = QCheckBox("원문있음만")
+        search.addWidget(self.chk_doctoral)
+        search.addWidget(self.chk_fulltext)
         search.addWidget(self.btn_search)
         root.addLayout(search)
 
@@ -355,7 +366,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "입력 필요", "검색어를 입력하세요.")
             return
         mode = "author" if self.rb_author.isChecked() else "keyword"
-        args = build_search_args(mode, value, self.cmb_col.currentText())
+        args = build_search_args(
+            mode, value, self.cmb_col.currentText(),
+            doctoral=self.chk_doctoral.isChecked(),
+            fulltext=self.chk_fulltext.isChecked(),
+        )
         self.run_cli(args, "검색 완료")
 
     def on_download_selected(self):

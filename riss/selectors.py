@@ -45,6 +45,11 @@ FIELD_SEARCH_URL = (
 )
 FIELD_CREATOR = "znCreator"  # 저자 검색 필드 코드
 
+# RISS 좌측 필터(exQuery). 각 필터는 "<필드>:<값>◈" 조각이며 이어 붙여 조합한다.
+# 실 URL에서 확인: (exQuery 조각, exQueryText 조각)
+FILTER_DOCTORAL = ("mat_subtype_cd:T2◈", "학위유형 [국내박사]@@mat_subtype_cd:T2◈")
+FILTER_FULLTEXT = ("fulltext_kind:1◈", "원문유무 [원문있음]@@fulltext_kind:1◈")
+
 # 검색 결과에서 논문 고유 ID(control_no)를 뽑는 정규식
 CONTROL_NO_PATTERN = r"control_no=([0-9a-zA-Z]+)"
 

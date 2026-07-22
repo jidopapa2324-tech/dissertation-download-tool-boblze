@@ -134,6 +134,12 @@ python cli.py search --author "서진형(Seo Jin Hyeong)" --collection article
 
 `--collection`: `all`(통합) | `thesis`(국내학위논문) | `article`(국내학술논문).
 
+RISS 좌측 필터도 지원한다(검색 시 옵션):
+- `--doctoral` : 학위유형 **국내박사**만 (학위논문 컬렉션으로 강제)
+- `--fulltext` : **원문있음**만 (받을 수 있는 것만 — 헛수고 감소)
+
+GUI에서는 검색줄의 **`국내박사만`·`원문있음만`** 체크박스로 켠다.
+
 stdout (JSON):
 
 ```json

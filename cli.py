@@ -48,6 +48,8 @@ def cmd_search(args: argparse.Namespace, config: dict) -> dict:
             author=args.author,
             collection=args.collection or config["default_collection"],
             max_pages=args.max_pages,
+            doctoral=args.doctoral,
+            fulltext_only=args.fulltext,
         )
     finally:
         session.close()
@@ -193,6 +195,10 @@ def main() -> int:
         "--collection", help="all | thesis | article (기본: config.default_collection)"
     )
     p_search.add_argument("--max-pages", type=int, default=3)
+    p_search.add_argument("--doctoral", action="store_true",
+                          help="학위유형=국내박사만 (학위논문으로 강제)")
+    p_search.add_argument("--fulltext", action="store_true",
+                          help="원문있음만 (받을 수 있는 것만)")
 
     p_download = sub.add_parser("download", help="지정한 ID(control_no)의 원문 다운로드")
     p_download.add_argument("--ids", nargs="+", help="다운로드할 논문 ID들 (띄어쓰기 구분)")
