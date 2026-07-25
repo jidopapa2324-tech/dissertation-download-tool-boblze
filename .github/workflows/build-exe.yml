@@ -14,6 +14,9 @@ on:
       - "requirements*.txt"
       - ".github/workflows/build-exe.yml"
 
+permissions:
+  contents: write   # Release 생성/갱신에 필요
+
 jobs:
   build:
     runs-on: windows-latest
@@ -45,3 +48,22 @@ jobs:
           name: RISS다운로더-exe
           path: dist/*.exe
           if-no-files-found: error
+
+      # 로그인 없이 고정 링크로 배포: latest 태그 Release에 exe를 갱신 첨부.
+      # 다운로드 주소(항상 최신): .../releases/latest
+      - name: Release(latest)에 exe 발행
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: RISS 다운로더 (최신 자동 빌드)
+          body: |
+            더블클릭 한 번으로 실행되는 단일 exe입니다. 설치가 필요 없습니다.
+
+            1. 아래 Assets에서 `RISS다운로더.exe` 다운로드
+            2. 원하는 폴더에 두고 더블클릭 (첫 실행은 압축 해제로 조금 느림)
+            3. `① 크롬 켜고 로그인` → 광운대 포털 로그인 → 검색/다운로드
+
+            ※ 서명되지 않은 개인 빌드라 Windows/백신 경고가 뜰 수 있습니다.
+            "추가 정보 → 실행"으로 진행하세요.
+          files: dist/*.exe
+          make_latest: true
