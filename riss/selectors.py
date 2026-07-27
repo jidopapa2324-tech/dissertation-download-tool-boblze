@@ -57,6 +57,19 @@ CONTROL_NO_PATTERN = r"control_no=([0-9a-zA-Z]+)"
 # 레코드라 원문 파일이 없다 → 다운로드 시 즉시 건너뛴다(타임아웃/재시도 낭비 방지).
 P_MAT_TYPE_JOURNAL = "3a11008f85f7c51d"
 
+# 상세 URL의 p_mat_type → 자료유형. 실 검색결과(index.jsonl) 분석으로 확인했다.
+# 인용 서식이 자료유형마다 다르므로(학위논문은 대학·학위구분이 필요) 여기서 판별한다.
+MAT_TYPES = {
+    "1a0202e37d52c72d": "article",   # 국내학술논문
+    "be54d9b8bc7cdb09": "thesis",    # 국내학위논문
+    P_MAT_TYPE_JOURNAL: "journal",   # 학술지(컨테이너) — 원문 없음
+    "d7345961987b50bf": "book",      # 단행본
+    "6b4a196b69d9bee2": "report",    # 연구보고서
+    "e21c2016a7c3498b": "article",   # 해외학술논문
+    "695c7ada7e580906": "article",   # 학술발표/기타 논문(추정)
+    "2db2effbc5804a39": "media",     # 강의·멀티미디어
+}
+
 # 검색 결과 페이지에서 상세페이지로 가는 앵커. 이 앵커의 href에
 # 완전한 DetailView URL(p_mat_type + control_no 포함)이 들어있어,
 # 다운로드 때 URL을 재조립할 필요 없이 그대로 재사용한다.

@@ -282,11 +282,25 @@ def main() -> int:
             return 0
         if args.command == "library":
             items = export.library(config)
+            labels = {"thesis": "학위논문", "article": "학술논문",
+                      "book": "단행본", "report": "보고서"}
             for i, it in enumerate(items, 1):
                 au = ", ".join(it["authors"]) or "저자미상"
-                jr = f" 《{it['journal']}》" if it["journal"] else ""
-                pg = f" {it['pages']}" if it["pages"] else ""
-                print(f"{i:3}. {au} ({it['year'] or '연도미상'}). {it['title']}.{jr}{pg}")
+                kind = labels.get(it["type"], it["type"])
+                if it["type"] == "thesis":
+                    deg = (it["degree"] + "학위논문") if it["degree"] else "학위논문"
+                    src = f" {it['institution']} {deg}".rstrip()
+                elif it["type"] in ("book", "report"):
+                    src = f" {it['institution']}" if it["institution"] else ""
+                else:
+                    src = f" 《{it['journal']}》" if it["journal"] else ""
+                    vol, iss = it["volume"], it["issue"]
+                    vi = f"{vol}({iss})" if vol and iss else (vol or iss)
+                    if vi:
+                        src += f" {vi}"
+                    if it["pages"]:
+                        src += f" {it['pages']}"
+                print(f"{i:3}. [{kind}] {au} ({it['year'] or '연도미상'}). {it['title']}.{src}")
             print(f"\n총 {len(items)}건 (다운로드 완료, data/metadata.jsonl)")
             return 0
         if args.command == "export":
