@@ -10,10 +10,12 @@
 import json
 import os
 import re
+import shutil
+import socket
 import sys
 
 import paths
-from PySide6.QtCore import QProcess, Qt
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -109,17 +112,66 @@ def failed_count(config: dict) -> int:
         return 0
 
 
-def find_chrome() -> str | None:
-    """Windows 크롬 실행 경로 자동 감지 (없으면 None)."""
+def find_chrome(config: dict | None = None) -> str | None:
+    """크롬 실행 경로를 찾는다. 설정값 → 일반 설치 위치 → PATH → 레지스트리 순.
+
+    설치 위치가 제각각이라(사용자 계정 설치, 다른 드라이브 등) 여러 경로를
+    확인하고, 그래도 없으면 None을 반환해 사용자가 직접 고르게 한다.
+    """
+    saved = (config or {}).get("chrome_path")
+    if saved and os.path.exists(saved):
+        return saved
+
     candidates = [
         os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%ProgramW6432%\Google\Chrome\Application\chrome.exe"),
     ]
     for c in candidates:
         if c and os.path.exists(c):
             return c
+
+    which = shutil.which("chrome") or shutil.which("chrome.exe")
+    if which:
+        return which
+
+    try:  # Windows 레지스트리(App Paths)에 등록된 위치
+        import winreg
+
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(
+                    root, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe"
+                ) as k:
+                    path = winreg.QueryValue(k, None)
+                    if path and os.path.exists(path):
+                        return path
+            except OSError:
+                continue
+    except Exception:
+        pass
     return None
+
+
+def save_config_value(key: str, value) -> None:
+    """설정을 config.json에 저장한다(크롬 경로처럼 사용자마다 다른 값)."""
+    path = paths.config_path()
+    data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+    data[key] = value
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def chrome_launch_args() -> list[str]:
@@ -129,6 +181,29 @@ def chrome_launch_args() -> list[str]:
         r"--user-data-dir=C:\chrome-riss",
         "https://kupis.kw.ac.kr/",
     ]
+
+
+def chrome_ready(cdp_url: str) -> bool:
+    """디버깅 포트(9222)가 열려 있는지 즉시 확인한다.
+
+    검색/다운로드 전에 미리 확인해, 크롬을 안 켠 상태에서 실행했을 때
+    영문 예외 대신 '먼저 크롬을 켜세요' 안내를 보여주기 위함이다.
+    """
+    try:
+        hostport = (cdp_url or "").split("//")[-1].strip("/")
+        host, _, port = hostport.partition(":")
+        with socket.create_connection((host or "127.0.0.1", int(port or "9222")), timeout=0.6):
+            return True
+    except Exception:
+        return False
+
+
+def child_env() -> QProcessEnvironment:
+    """자식 프로세스가 UTF-8로 출력하도록 강제한다(Windows 한글 깨짐 방지)."""
+    env = QProcessEnvironment.systemEnvironment()
+    env.insert("PYTHONIOENCODING", "utf-8")
+    env.insert("PYTHONUTF8", "1")
+    return env
 
 
 # --------------------------------------------------------------------------
@@ -297,12 +372,25 @@ class MainWindow(QMainWindow):
         if self._busy():
             QMessageBox.information(self, "실행 중", "다른 작업이 끝난 뒤 시도하세요.")
             return
+        # 브라우저가 필요한 작업은 미리 확인해 친절히 안내한다.
+        if args and args[0] in ("search", "download", "inspect"):
+            if not chrome_ready(self.config.get("cdp_url", "http://127.0.0.1:9222")):
+                QMessageBox.warning(
+                    self, "크롬을 먼저 켜세요",
+                    "로그인된 크롬(디버깅 포트 9222)이 필요합니다.\n\n"
+                    "1) 왼쪽 위 [① 크롬 켜고 로그인] 을 누르세요\n"
+                    "2) 열린 크롬에서 도서관 로그인 → RISS 접속\n"
+                    "3) 그 크롬 창은 닫지 말고 여기로 돌아와 다시 시도하세요",
+                )
+                self.statusBar().showMessage("크롬 미연결 — ① 버튼으로 크롬을 켜세요")
+                return
         self._set_enabled(False)
         self.progress.setValue(0)
         self.log.appendPlainText(f"\n$ cli.py {' '.join(args)}\n")
 
         proc = QProcess(self)
         proc.setWorkingDirectory(APP_DIR)
+        proc.setProcessEnvironment(child_env())
         proc.readyReadStandardOutput.connect(lambda: self._read(proc, False))
         proc.readyReadStandardError.connect(lambda: self._read(proc, True))
         proc.finished.connect(lambda code, _st: self._on_finished(code, done_msg))
@@ -332,16 +420,50 @@ class MainWindow(QMainWindow):
 
     # ---- 버튼 핸들러 -----------------------------------------------------
     def on_login(self):
-        chrome = find_chrome()
+        chrome = find_chrome(self.config)
         if not chrome:
-            QMessageBox.warning(self, "크롬 없음",
-                                "Chrome 실행 파일을 찾지 못했습니다.\n설치 경로를 확인하세요.")
+            # 자동으로 못 찾으면 사용자가 직접 지정하게 하고 기억한다.
+            QMessageBox.information(
+                self, "크롬 위치를 알려주세요",
+                "Chrome 설치 위치를 자동으로 찾지 못했습니다.\n"
+                "다음 창에서 chrome.exe 를 직접 선택해 주세요.\n\n"
+                "보통 위치: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            )
+            picked, _ = QFileDialog.getOpenFileName(
+                self, "chrome.exe 선택", "C:\\", "실행 파일 (chrome.exe *.exe)")
+            if not picked:
+                self.statusBar().showMessage("크롬 실행 취소됨")
+                return
+            chrome = picked
+            save_config_value("chrome_path", chrome)
+            self.config = load_config()
+            self.log.appendPlainText(f"크롬 경로를 저장했습니다: {chrome}")
+
+        ok = QProcess.startDetached(chrome, chrome_launch_args())
+        if not ok:
+            QMessageBox.warning(
+                self, "크롬 실행 실패",
+                f"크롬을 실행하지 못했습니다:\n{chrome}\n\n"
+                "경로가 맞는지 확인하거나, 크롬을 모두 닫고 다시 시도하세요.")
+            self.statusBar().showMessage("크롬 실행 실패")
             return
-        QProcess.startDetached(chrome, chrome_launch_args())
         self.log.appendPlainText(
             "크롬을 켰습니다(포트 9222). 뜬 창에서 광운대 포털 로그인 →\n"
-            "  대학원생 선택 → schosite/list/1 에서 RISS 접속 후, 이 창에서 검색하세요.")
-        self.statusBar().showMessage("크롬 실행됨 — 로그인 후 검색하세요")
+            "  대학원생 선택 → schosite/list/1 에서 RISS 접속 후, 이 창에서 검색하세요.\n"
+            "  (이 크롬 창은 작업이 끝날 때까지 닫지 마세요)")
+        self.statusBar().showMessage("크롬 실행 중… 잠시 후 연결을 확인합니다")
+        # 크롬이 뜨는 데 몇 초 걸리므로 잠시 뒤 연결 여부를 확인해 알려준다.
+        QTimer.singleShot(4000, self._check_chrome_status)
+
+    def _check_chrome_status(self):
+        if chrome_ready(self.config.get("cdp_url", "http://127.0.0.1:9222")):
+            self.statusBar().showMessage("크롬 연결됨 ✓ — 로그인 후 검색하세요")
+            self.log.appendPlainText("크롬 연결 확인됨 ✓ (로그인 먼저 하세요)")
+        else:
+            self.statusBar().showMessage("크롬 연결 안 됨 — 창이 떴는지 확인하세요")
+            self.log.appendPlainText(
+                "아직 크롬이 연결되지 않았습니다. 창이 떴는지 확인하고, "
+                "안 떴으면 기존 크롬을 모두 닫은 뒤 다시 눌러보세요.")
 
     def on_update(self):
         if self._busy():
@@ -350,6 +472,7 @@ class MainWindow(QMainWindow):
         self.log.appendPlainText("\n$ git pull\n")
         proc = QProcess(self)
         proc.setWorkingDirectory(APP_DIR)
+        proc.setProcessEnvironment(child_env())
         proc.readyReadStandardOutput.connect(lambda: self._read(proc, False))
         proc.readyReadStandardError.connect(lambda: self._read(proc, True))
         proc.finished.connect(lambda code, _st: self._on_finished(code, "업데이트 완료"))

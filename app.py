@@ -20,8 +20,22 @@ def _dispatch(argv: list[str]) -> str:
     return "gui"
 
 
+def _force_utf8() -> None:
+    """stdout/stderr을 UTF-8로 고정한다.
+
+    Windows는 콘솔 기본 인코딩이 CP949라, GUI가 자식 프로세스 출력을 UTF-8로
+    읽을 때 한글이 깨진다. 출력 쪽에서 UTF-8로 못박아 해결한다.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main() -> int:
-    paths.ensure_runtime()  # 작업 폴더 고정 + config.json 준비
+    _force_utf8()
+    paths.ensure_runtime()  # 작업 폴더 고정
     mode = _dispatch(sys.argv[1:])
     if mode == "cli":
         import cli
